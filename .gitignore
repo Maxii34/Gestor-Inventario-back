@@ -1,3 +1,16 @@
 node_modules
-# Keep environment variables out of version control
+
+# Variables de entorno
 .env
+.env.*
+!.env.example
+
+# Build de TypeScript
+dist
+
+# Cliente generado de Prisma (si tu proyecto lo genera en una carpeta custom)
+# Por defecto en Prisma 7 puede ir dentro de node_modules o en una carpeta propia
+generated/
+
+# Logs
+npm-debug.log*

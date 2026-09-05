@@ -10,5 +10,106 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+}
+
+model Categoria {
+  id          Int        @id @default(autoincrement())
+  nombre      String     @unique
+  descripcion String?
+  activo      Boolean    @default(true)
+  productos   Producto[]
+  fechaCreacion DateTime @default(now())
+  fechaActualizacion DateTime @updatedAt
+}
+
+model Producto {
+  id          Int        @id @default(autoincrement())
+  nombre      String
+  descripcion String?
+  precioCompra Decimal    @db.Decimal(10, 2)
+  precioVenta  Decimal    @db.Decimal(10, 2)
+  stock       Int        @default(0)
+  stockMinimo Int        @default(0)
+  activo      Boolean    @default(true)
+
+  categoriaId Int
+  categoria   Categoria  @relation(fields: [categoriaId], references: [id])
+
+  movimientosStock MovimientoStock[]
+  detallesVenta    DetalleVenta[]
+
+  fechaCreacion    DateTime @default(now())
+  fechaActualizacion DateTime @updatedAt
+}
+
+model MovimientoStock {
+  id          Int      @id @default(autoincrement())
+  tipo        TipoMovimiento
+  cantidad    Int
+  stockAnterior Int
+  stockNuevo    Int
+  motivo      String?
+
+  productoId  Int
+  producto    Producto @relation(fields: [productoId], references: [id])
+
+  fecha       DateTime @default(now())
+}
+
+model Cliente {
+  id          Int      @id @default(autoincrement())
+  nombre      String
+  apellido    String
+  dni         String?  @unique
+  telefono    String?
+  email       String?  @unique
+
+  ventas      Venta[]
+
+  fechaCreacion DateTime @default(now())
+  fechaActualizacion DateTime @updatedAt
+}
+
+model Venta {
+  id            Int          @id @default(autoincrement())
+  total         Decimal      @db.Decimal(10, 2)
+  metodoPago    MetodoPago
+  estado        EstadoVenta  @default(COMPLETADA)
+
+  clienteId     Int?
+  cliente       Cliente?     @relation(fields: [clienteId], references: [id])
+
+  detalles      DetalleVenta[]
+
+  fecha         DateTime     @default(now())
+}
+
+model DetalleVenta {
+  id          Int      @id @default(autoincrement())
+  cantidad    Int
+  precioUnitario Decimal @db.Decimal(10, 2)
+  subtotal    Decimal  @db.Decimal(10, 2)
+
+  ventaId     Int
+  venta       Venta    @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+
+  productoId  Int
+  producto    Producto @relation(fields: [productoId], references: [id])
+}
+
+enum TipoMovimiento {
+  ENTRADA
+  SALIDA
+  AJUSTE
+}
+
+enum MetodoPago {
+  EFECTIVO
+  TRANSFERENCIA
+  TARJETA
+}
+
+enum EstadoVenta {
+  COMPLETADA
+  ANULADA
 }
