@@ -2,7 +2,7 @@
 import { Request, Response, NextFunction } from "express";
 import { ZodType } from "zod";
 
-export const categoriaValidate = (schema: ZodType) => {
+export const validate = (schema: ZodType) => {
   return (req: Request, res: Response, next: NextFunction) => {
     try {
       req.body = schema.parse(req.body); // valida y sobreescribe req.body ya "limpio"
