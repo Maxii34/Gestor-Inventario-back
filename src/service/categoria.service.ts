@@ -18,8 +18,22 @@ export const categoriaService = {
     return categoriaRepository.create(data);
   },
 
-  update: (id: number, data: { nombre?: string; descripcion?: string }) =>
-    categoriaRepository.update(id, data),
+  update: async (
+    id: number,
+    data: { nombre?: string; descripcion?: string },
+  ) => {
+    const categoria = await categoriaRepository.findById(id);
+    if (!categoria) {
+      throw new Error("Categoría no encontrada");
+    }
+    return categoriaRepository.update(id, data);
+  },
 
-  delete: (id: number) => categoriaRepository.delete(id),
+  delete: async (id: number) => {
+    const actegoria = await categoriaRepository.findById(id);
+    if (!actegoria) {
+      throw new Error("Categoría no encontrada");
+    }
+    return categoriaRepository.delete(id);
+  },
 };
