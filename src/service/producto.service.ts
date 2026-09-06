@@ -13,7 +13,7 @@ interface CrearProductoDTO {
 type ActualizarProductoDTO = Partial<CrearProductoDTO>;
 
 export const productoService = {
-  getAllProductos: () => productoRepository.findAll(),
+  getAll: () => productoRepository.findAll(),
 
   getById: async (id: number) => {
     const producto = await productoRepository.findById(id);
