@@ -3,7 +3,11 @@ import { prisma } from "../config/prisma";
 export const categoriaRepository = {
   findAll: () => prisma.categoria.findMany(),
 
-  findById: (id: number) => prisma.categoria.findUnique({ where: { id } }),
+  findById: (id: number) =>
+    prisma.categoria.findUnique({
+      where: { id },
+      include: { productos: true },
+    }),
 
   create: (data: { nombre: string; descripcion?: string }) =>
     prisma.categoria.create({ data }),
