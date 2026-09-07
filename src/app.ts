@@ -3,6 +3,7 @@ import cors from "cors";
 import morgan from "morgan";
 import categoriaRoutes from "./routes/categoria.routes";
 import productoRoutes from "./routes/producto.routes";
+import movimientoRoutes from "./routes/movimiento.routes";
 
 const app = express();
 
@@ -16,5 +17,6 @@ app.get("/", (req, res) => {
 
 app.use("/categorias", categoriaRoutes);
 app.use("/productos", productoRoutes);
+app.use("/movimientos", movimientoRoutes);
 
 export default app;
