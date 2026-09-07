@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { movimientoController } from "../controllers/movimiento.controller";
-import { validate } from "../middlewares/categoria.validate";
+import { validate } from "../middlewares/validate";
 import { crearMovimientoSchema, actualizarMovimientoSchema } from "../validators/movimiento.validation";
 
 const router = Router();
