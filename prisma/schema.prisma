@@ -64,6 +64,7 @@ model Cliente {
   dni         String?  @unique
   telefono    String?
   email       String?  @unique
+  activo      Boolean  @default(true)
 
   ventas      Venta[]
 
