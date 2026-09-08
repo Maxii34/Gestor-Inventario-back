@@ -99,6 +99,18 @@ model DetalleVenta {
   producto    Producto @relation(fields: [productoId], references: [id])
 }
 
+model Usuario {
+  id        Int      @id @default(autoincrement())
+  nombre    String
+  email     String   @unique
+  password  String
+  rol       RolUsuario @default(VENDEDOR)
+  activo    Boolean  @default(true)
+
+  fechaCreacion DateTime @default(now())
+  fechaActualizacion DateTime @updatedAt
+}
+
 enum TipoMovimiento {
   ENTRADA
   SALIDA
@@ -114,4 +126,9 @@ enum MetodoPago {
 enum EstadoVenta {
   COMPLETADA
   ANULADA
+}
+
+enum RolUsuario {
+  ADMIN
+  VENDEDOR
 }
