@@ -6,6 +6,7 @@ import productoRoutes from "./routes/producto.routes";
 import movimientoRoutes from "./routes/movimiento.routes";
 import clienteRoutes from "./routes/cliente.routes";
 import ventaRoutes from "./routes/venta.routes";
+import usuarioRoutes from "./routes/usuario.routes";
 
 const app = express();
 
@@ -22,5 +23,6 @@ app.use("/productos", productoRoutes);
 app.use("/movimientos", movimientoRoutes);
 app.use("/clientes", clienteRoutes);
 app.use("/ventas", ventaRoutes);
+app.use("/usuarios", usuarioRoutes);
 
 export default app;
