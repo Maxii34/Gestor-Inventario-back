@@ -109,6 +109,17 @@ model Usuario {
 
   fechaCreacion DateTime @default(now())
   fechaActualizacion DateTime @updatedAt
+  refreshTokens RefreshToken[]
+}
+
+model RefreshToken {
+  id          Int      @id @default(autoincrement())
+  token       String   @unique
+  usuarioId   Int
+  usuario     Usuario  @relation(fields: [usuarioId], references: [id])
+  expiraEn    DateTime
+  revocado    Boolean  @default(false)
+  fechaCreacion DateTime @default(now())
 }
 
 enum TipoMovimiento {
