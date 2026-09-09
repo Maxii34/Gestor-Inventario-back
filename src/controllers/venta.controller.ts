@@ -22,9 +22,28 @@ export const ventaController = {
     res.status(200).json({ ok: true, mensaje: "Venta obtenida correctamente", data: venta });
   },
 
+  // Ahora inicia el proceso de pago en vez de completar la venta al instante.
+  // Devuelve el link de Mercado Pago para que el frontend redirija al cliente.
   create: async (req: Request, res: Response) => {
-    const venta = await ventaService.create(req.body);
-    res.status(201).json({ ok: true, mensaje: "Venta creada correctamente", data: venta });
+    const resultado = await ventaService.iniciarVenta(req.body);
+    res.status(201).json({
+      ok: true,
+      mensaje: "Venta iniciada, redirigir al link de pago",
+      data: resultado,
+    });
+  },
+
+  // Nuevo: acá le pega Mercado Pago, no el frontend ni un usuario común.
+  // Siempre respondemos 200 rápido (MP reintenta si no le contestás a tiempo),
+  // incluso si la notificación no era del tipo que nos interesa.
+  webhook: async (req: Request, res: Response) => {
+    const { type, data } = req.body;
+
+    if (type === "payment" && data?.id) {
+      await ventaService.confirmarPago(data.id);
+    }
+
+    res.status(200).send("ok");
   },
 
   update: async (req: Request, res: Response) => {
