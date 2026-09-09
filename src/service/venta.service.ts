@@ -4,7 +4,7 @@ import { productoRepository } from "../repositores/producto.repository";
 import { movimientoRepository } from "../repositores/movimiento.repository";
 import { clienteRepository } from "../repositores/cliente.repository";
 import { MetodoPago } from "../generated/prisma/client";
-import { NotFoundError, ConflictError } from "../utils/errors"; 
+import { NotFoundError, ConflictError } from "../utils/errors";
 
 interface DetalleInput {
   productoId: number;
@@ -24,22 +24,29 @@ export interface ActualizarVentaDTO {
 }
 
 export const ventaService = {
-  getAll: () => ventaRepository.findAll(),
+  getAll: async (page: number, limit: number) => {
+    const skip = (page - 1) * limit;
+
+    const [ventas, total] = await Promise.all([
+      ventaRepository.findAll(skip, limit),
+      ventaRepository.count(),
+    ]);
+
+    return {
+      data: ventas,
+      meta: { total, page, limit, totalPaginas: Math.ceil(total / limit) },
+    };
+  },
 
   getById: async (id: number) => {
     const venta = await ventaRepository.findById(id);
     if (!venta) {
-      throw new NotFoundError("Venta no encontrada"); 
+      throw new NotFoundError("Venta no encontrada");
     }
     return venta;
   },
 
   create: async (data: CrearVentaDTO) => {
-    // TRANSACCIÓN GRANDE: agrupa TODO el proceso de la venta (validar stock,
-    // descontarlo, crear cada movimiento, y crear la venta con sus detalles).
-    // Si cualquier ítem del array "detalles" falla, Prisma revierte TODO lo
-    // anterior. Los throw de acá adentro siguen siendo NotFoundError/ConflictError
-    // afuera de la transacción, Prisma no los transforma.
     const venta = await prisma.$transaction(async (tx) => {
       let total = 0;
       const detallesData = [];

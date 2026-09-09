@@ -1,10 +1,18 @@
 import { prisma } from "../config/prisma";
 import { Prisma } from "../generated/prisma/client";
 
-type PrismaTx = Prisma.TransactionClient; // alias para no repetir el tipo largo en cada método
+type PrismaTx = Prisma.TransactionClient;
 
 export const ventaRepository = {
-  findAll: () => prisma.venta.findMany({ include: { detalles: true, cliente: true } }),
+  findAll: (skip?: number, take?: number) =>
+    prisma.venta.findMany({
+      skip,
+      take,
+      orderBy: { fecha: "desc" },
+      include: { detalles: true, cliente: true },
+    }),
+
+  count: () => prisma.venta.count(),
 
   findById: (id: number, tx?: PrismaTx) =>
     (tx ?? prisma).venta.findUnique({

@@ -4,8 +4,16 @@ import { ventaService } from "../service/venta.service";
 export const ventaController = {
 
   getAll: async (req: Request, res: Response) => {
-    const ventas = await ventaService.getAll();
-    res.status(200).json({ ok: true, mensaje: "Ventas obtenidas correctamente", data: ventas });
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+
+    const resultado = await ventaService.getAll(page, limit);
+    res.status(200).json({
+      ok: true,
+      mensaje: "Ventas obtenidas correctamente",
+      data: resultado.data,
+      meta: resultado.meta,
+    });
   },
 
   getById: async (req: Request, res: Response) => {
