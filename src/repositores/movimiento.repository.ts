@@ -4,7 +4,15 @@ import { Prisma } from "../generated/prisma/client";
 type PrismaTx = Prisma.TransactionClient;
 
 export const movimientoRepository = {
-  findAll: () => prisma.movimientoStock.findMany(),
+  findAll: (skip?: number, take?: number) =>
+    prisma.movimientoStock.findMany({
+      skip,
+      take,
+      orderBy: { fecha: "desc" }, // más recientes primero, y evita resultados inconsistentes entre páginas
+      include: { producto: true },
+    }),
+
+  count: () => prisma.movimientoStock.count(),
 
   findById: (id: number, tx?: PrismaTx) =>
     (tx ?? prisma).movimientoStock.findUnique({

@@ -2,7 +2,7 @@ import { prisma } from "../config/prisma";
 import { movimientoRepository } from "../repositores/movimiento.repository";
 import { productoRepository } from "../repositores/producto.repository";
 import { TipoMovimiento } from "../generated/prisma/client";
-import { NotFoundError, ConflictError } from "../utils/errors"; 
+import { NotFoundError, ConflictError } from "../utils/errors";
 
 export interface CrearMovimientoDTO {
   tipo: TipoMovimiento;
@@ -16,18 +16,29 @@ export interface ActualizarMovimientoDTO {
 }
 
 export const movimientoService = {
-  getAll: () => movimientoRepository.findAll(),
+  getAll: async (page: number, limit: number) => {
+    const skip = (page - 1) * limit;
+
+    const [movimientos, total] = await Promise.all([
+      movimientoRepository.findAll(skip, limit),
+      movimientoRepository.count(),
+    ]);
+
+    return {
+      data: movimientos,
+      meta: { total, page, limit, totalPaginas: Math.ceil(total / limit) },
+    };
+  },
 
   getById: async (id: number) => {
     const movimiento = await movimientoRepository.findById(id);
     if (!movimiento) {
-      throw new NotFoundError("Movimiento no encontrado"); 
+      throw new NotFoundError("Movimiento no encontrado");
     }
     return movimiento;
   },
 
   create: async (data: CrearMovimientoDTO) => {
-    // fuera de la transacción: solo es una lectura, no modifica nada todavía
     const producto = await productoRepository.findById(data.productoId);
     if (!producto) {
       throw new NotFoundError("Producto no encontrado");
@@ -41,14 +52,12 @@ export const movimientoService = {
     } else if (data.tipo === "SALIDA") {
       stockNuevo = stockAnterior - data.cantidad;
       if (stockNuevo < 0) {
-        throw new ConflictError("Stock insuficiente"); // conflicto de negocio, no dato inválido
+        throw new ConflictError("Stock insuficiente");
       }
     } else if (data.tipo === "AJUSTE") {
-      stockNuevo = data.cantidad; // ajuste directo al valor indicado
+      stockNuevo = data.cantidad;
     }
 
-    // TRANSACCIÓN: agrupa el update de stock + el create del movimiento.
-    // Si cualquiera de las dos falla, Prisma revierte ambas (rollback automático).
     const movimiento = await prisma.$transaction(async (tx) => {
       await productoRepository.update(data.productoId, { stock: stockNuevo }, tx);
 
@@ -76,8 +85,6 @@ export const movimientoService = {
     return movimientoRepository.update(id, data);
   },
 
-  // Nota: borrar un movimiento no revierte el efecto que tuvo sobre el stock
-  // del producto.
   delete: async (id: number) => {
     const movimiento = await movimientoRepository.findById(id);
     if (!movimiento) {
