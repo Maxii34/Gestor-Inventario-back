@@ -12,6 +12,11 @@ export const loginSchema = z.object({
   password: z.string().min(1, "La contraseña es obligatoria"),
 });
 
+// valida el body de /refresh y /logout
+export const refreshTokenSchema = z.object({
+  refreshToken: z.string().min(1, "El refreshToken es obligatorio"),
+});
+
 export const actualizarUsuarioSchema = z.object({
   nombre: z.string().trim().min(1).optional(),
   email: z.email().optional(),

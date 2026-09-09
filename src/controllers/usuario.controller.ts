@@ -24,6 +24,16 @@ export const usuarioController = {
     res.status(200).json({ ok: true, mensaje: "Login exitoso", data: resultado });
   },
 
+  refresh: async (req: Request, res: Response) => {
+    const resultado = await usuarioService.refresh(req.body.refreshToken);
+    res.status(200).json({ ok: true, mensaje: "Token renovado correctamente", data: resultado });
+  },
+
+  logout: async (req: Request, res: Response) => {
+    await usuarioService.logout(req.body.refreshToken);
+    res.status(200).json({ ok: true, mensaje: "Sesión cerrada correctamente", data: null });
+  },
+
   update: async (req: Request, res: Response) => {
     const id = Number(req.params.id);
     const usuario = await usuarioService.update(id, req.body);
