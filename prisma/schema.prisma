@@ -73,17 +73,20 @@ model Cliente {
 }
 
 model Venta {
-  id            Int          @id @default(autoincrement())
-  total         Decimal      @db.Decimal(10, 2)
-  metodoPago    MetodoPago
-  estado        EstadoVenta  @default(COMPLETADA)
+  id              Int          @id @default(autoincrement())
+  total           Decimal      @db.Decimal(10, 2)
+  metodoPago      MetodoPago
+  estado          EstadoVenta  @default(PENDIENTE) 
 
-  clienteId     Int?
-  cliente       Cliente?     @relation(fields: [clienteId], references: [id])
+  mercadoPagoPreferenceId String?
+  mercadoPagoPaymentId    String?
 
-  detalles      DetalleVenta[]
+  clienteId       Int?
+  cliente         Cliente?     @relation(fields: [clienteId], references: [id])
 
-  fecha         DateTime     @default(now())
+  detalles        DetalleVenta[]
+
+  fecha           DateTime     @default(now())
 }
 
 model DetalleVenta {
@@ -135,8 +138,10 @@ enum MetodoPago {
 }
 
 enum EstadoVenta {
+  PENDIENTE
   COMPLETADA
   ANULADA
+  RECHAZADA
 }
 
 enum RolUsuario {
