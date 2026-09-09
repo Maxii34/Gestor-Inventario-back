@@ -1,5 +1,5 @@
 import { productoRepository } from "../repositores/producto.repository";
-import { NotFoundError, BadRequestError } from "../utils/errors"; // clases de error propias
+import { NotFoundError, BadRequestError } from "../utils/errors";
 
 interface CrearProductoDTO {
   nombre: string;
@@ -14,12 +14,24 @@ interface CrearProductoDTO {
 type ActualizarProductoDTO = Partial<CrearProductoDTO>;
 
 export const productoService = {
-  getAll: () => productoRepository.findAll(),
+  getAll: async (page: number, limit: number) => {
+    const skip = (page - 1) * limit;
+
+    const [productos, total] = await Promise.all([
+      productoRepository.findAll(skip, limit),
+      productoRepository.count(),
+    ]);
+
+    return {
+      data: productos,
+      meta: { total, page, limit, totalPaginas: Math.ceil(total / limit) },
+    };
+  },
 
   getById: async (id: number) => {
     const producto = await productoRepository.findById(id);
     if (!producto) {
-      throw new NotFoundError("Producto no encontrado"); // antes: new Error(...)
+      throw new NotFoundError("Producto no encontrado");
     }
     return producto;
   },
@@ -46,13 +58,11 @@ export const productoService = {
   },
 
   update: async (id: number, data: ActualizarProductoDTO) => {
-    // 1. Verificar que el producto exista antes de intentar actualizar
     const productoExistente = await productoRepository.findById(id);
     if (!productoExistente) {
       throw new NotFoundError("El producto no existe");
     }
 
-    // 2. Validar precios SOLO si el usuario los está actualizando
     const nuevoPrecioCompra =
       data.precioCompra ?? productoExistente.precioCompra;
     const nuevoPrecioVenta = data.precioVenta ?? productoExistente.precioVenta;

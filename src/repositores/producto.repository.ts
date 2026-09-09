@@ -4,7 +4,15 @@ import { Prisma } from "../generated/prisma/client";
 type PrismaTx = Prisma.TransactionClient;
 
 export const productoRepository = {
-  findAll: () => prisma.producto.findMany({ include: { categoria: true } }),
+  findAll: (skip?: number, take?: number) =>
+    prisma.producto.findMany({
+      skip,
+      take,
+      orderBy: { id: "asc" },
+      include: { categoria: true },
+    }),
+
+  count: () => prisma.producto.count(),
 
   findById: (id: number, tx?: PrismaTx) =>
     (tx ?? prisma).producto.findUnique({ where: { id }, include: { categoria: true } }),

@@ -3,13 +3,21 @@ import { productoService } from "../service/producto.service";
 
 export const productoController = {
   getAll: async (req: Request, res: Response) => {
-    const productosObtenidos = await productoService.getAll();
-    res.status(200).json({ ok: true, mensaje: "Productos obtenidos", data: productosObtenidos });
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+
+    const resultado = await productoService.getAll(page, limit);
+    res.status(200).json({
+      ok: true,
+      mensaje: "Productos obtenidos",
+      data: resultado.data,
+      meta: resultado.meta,
+    });
   },
 
   create: async (req: Request, res: Response) => {
     const productoCreado = await productoService.create(req.body);
-    res.status(201).json({ ok: true, mensaje: "Producto creado", data: productoCreado }); // corregido 200 -> 201 (creación)
+    res.status(201).json({ ok: true, mensaje: "Producto creado", data: productoCreado });
   },
 
   getById: async (req: Request, res: Response) => {
