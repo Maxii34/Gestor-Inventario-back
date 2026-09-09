@@ -1,4 +1,5 @@
 import { clienteRepository } from "../repositores/cliente.repository";
+import { NotFoundError } from "../utils/errors";
 
 export interface CrearClienteDTO {
   nombre: string;
@@ -22,15 +23,26 @@ export const clienteService = {
   getById: async (id: number) => {
     const cliente = await clienteRepository.findById(id);
     if (!cliente) {
-      throw new Error("Cliente no encontrado");
+      throw new NotFoundError("Cliente no encontrado"); 
     }
     return cliente;
   },
 
   create: (data: CrearClienteDTO) => clienteRepository.create(data),
 
-  update: (id: number, data: ActualizarClienteDTO) =>
-    clienteRepository.update(id, data),
+  update: async (id: number, data: ActualizarClienteDTO) => {
+    const cliente = await clienteRepository.findById(id);
+    if (!cliente) {
+      throw new NotFoundError("Cliente no encontrado");
+    }
+    return clienteRepository.update(id, data);
+  },
 
-  delete: (id: number) => clienteRepository.delete(id),
+  delete: async (id: number) => {
+    const cliente = await clienteRepository.findById(id);
+    if (!cliente) {
+      throw new NotFoundError("Cliente no encontrado");
+    }
+    return clienteRepository.delete(id);
+  },
 };

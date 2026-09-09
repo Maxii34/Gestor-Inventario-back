@@ -1,9 +1,10 @@
-import { prisma } from "../config/prisma"; // necesario para usar prisma.$transaction
+import { prisma } from "../config/prisma";
 import { ventaRepository } from "../repositores/venta.repository";
 import { productoRepository } from "../repositores/producto.repository";
 import { movimientoRepository } from "../repositores/movimiento.repository";
 import { clienteRepository } from "../repositores/cliente.repository";
 import { MetodoPago } from "../generated/prisma/client";
+import { NotFoundError, ConflictError } from "../utils/errors"; 
 
 interface DetalleInput {
   productoId: number;
@@ -28,7 +29,7 @@ export const ventaService = {
   getById: async (id: number) => {
     const venta = await ventaRepository.findById(id);
     if (!venta) {
-      throw new Error("Venta no encontrada");
+      throw new NotFoundError("Venta no encontrada"); 
     }
     return venta;
   },
@@ -36,23 +37,20 @@ export const ventaService = {
   create: async (data: CrearVentaDTO) => {
     // TRANSACCIÓN GRANDE: agrupa TODO el proceso de la venta (validar stock,
     // descontarlo, crear cada movimiento, y crear la venta con sus detalles).
-    // Si cualquier ítem del array "detalles" (los productos de ESTA venta puntual,
-    // no hay carrito persistente en este proyecto) falla -ej: sin stock en el
-    // ítem 3 de 5- Prisma revierte TODO lo anterior: ningún producto queda con
-    // stock descontado y no se crea ningún movimiento huérfano.
+    // Si cualquier ítem del array "detalles" falla, Prisma revierte TODO lo
+    // anterior. Los throw de acá adentro siguen siendo NotFoundError/ConflictError
+    // afuera de la transacción, Prisma no los transforma.
     const venta = await prisma.$transaction(async (tx) => {
       let total = 0;
       const detallesData = [];
 
       for (const item of data.detalles) {
-        // lectura y validación del producto (usando tx para ver datos consistentes
-        // dentro de la misma transacción, no una copia vieja)
         const producto = await productoRepository.findById(item.productoId, tx);
         if (!producto) {
-          throw new Error(`Producto ${item.productoId} no encontrado`);
+          throw new NotFoundError(`Producto ${item.productoId} no encontrado`);
         }
         if (producto.stock < item.cantidad) {
-          throw new Error(`Stock insuficiente para ${producto.nombre}`);
+          throw new ConflictError(`Stock insuficiente para ${producto.nombre}`);
         }
 
         const precioUnitario = Number(producto.precioVenta);
@@ -69,14 +67,12 @@ export const ventaService = {
         const stockAnterior = producto.stock;
         const stockNuevo = stockAnterior - item.cantidad;
 
-        // descuento de stock DENTRO de la transacción
         await productoRepository.update(
           item.productoId,
           { stock: stockNuevo },
           tx,
         );
 
-        // registro del movimiento DENTRO de la misma transacción
         await movimientoRepository.create(
           {
             tipo: "SALIDA",
@@ -90,7 +86,6 @@ export const ventaService = {
         );
       }
 
-      // la venta y sus detalles se crean recién al final, también dentro de tx
       return ventaRepository.create(
         {
           total,
@@ -110,13 +105,13 @@ export const ventaService = {
   update: async (id: number, data: ActualizarVentaDTO) => {
     const venta = await ventaRepository.findById(id);
     if (!venta) {
-      throw new Error("Venta no encontrada");
+      throw new NotFoundError("Venta no encontrada");
     }
 
     if (data.clienteId) {
       const cliente = await clienteRepository.findById(data.clienteId);
       if (!cliente) {
-        throw new Error("Cliente no encontrado");
+        throw new NotFoundError("Cliente no encontrado");
       }
     }
 
@@ -126,7 +121,7 @@ export const ventaService = {
   delete: async (id: number) => {
     const venta = await ventaRepository.findById(id);
     if (!venta) {
-      throw new Error("Venta no encontrada");
+      throw new NotFoundError("Venta no encontrada");
     }
 
     return ventaRepository.delete(id);

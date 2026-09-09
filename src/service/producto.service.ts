@@ -1,4 +1,5 @@
 import { productoRepository } from "../repositores/producto.repository";
+import { NotFoundError, BadRequestError } from "../utils/errors"; // clases de error propias
 
 interface CrearProductoDTO {
   nombre: string;
@@ -18,7 +19,7 @@ export const productoService = {
   getById: async (id: number) => {
     const producto = await productoRepository.findById(id);
     if (!producto) {
-      throw new Error("Producto no encontrado");
+      throw new NotFoundError("Producto no encontrado"); // antes: new Error(...)
     }
     return producto;
   },
@@ -30,12 +31,12 @@ export const productoService = {
       !data.precioVenta ||
       !data.stock
     ) {
-      throw new Error(
+      throw new BadRequestError(
         "Nombre, precio de compra, precio de venta y stock son obligatorios",
       );
     }
     if (data.precioVenta <= data.precioCompra) {
-      throw new Error("El precio de venta debe ser mayor al de compra");
+      throw new BadRequestError("El precio de venta debe ser mayor al de compra");
     }
 
     return productoRepository.create({
@@ -48,7 +49,7 @@ export const productoService = {
     // 1. Verificar que el producto exista antes de intentar actualizar
     const productoExistente = await productoRepository.findById(id);
     if (!productoExistente) {
-      throw new Error("El producto no existe");
+      throw new NotFoundError("El producto no existe");
     }
 
     // 2. Validar precios SOLO si el usuario los está actualizando
@@ -57,7 +58,7 @@ export const productoService = {
     const nuevoPrecioVenta = data.precioVenta ?? productoExistente.precioVenta;
 
     if (Number(nuevoPrecioVenta) <= Number(nuevoPrecioCompra)) {
-      throw new Error("El precio de venta debe ser mayor al de compra");
+      throw new BadRequestError("El precio de venta debe ser mayor al de compra");
     }
 
     return productoRepository.update(id, data);
@@ -66,7 +67,7 @@ export const productoService = {
   delete: async (id: number) => {
     const producto = await productoRepository.findById(id);
     if (!producto) {
-      throw new Error("Producto no encontrado");
+      throw new NotFoundError("Producto no encontrado");
     }
     return productoRepository.delete(id);
   },
