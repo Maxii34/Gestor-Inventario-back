@@ -25,6 +25,49 @@ export interface ActualizarVentaDTO {
   estado?: "COMPLETADA" | "ANULADA";
 }
 
+// Métodos que se procesan a través del checkout de Mercado Pago.
+// EFECTIVO no está acá: se cobra directo, sin pasar por MP.
+const METODOS_MERCADO_PAGO: MetodoPago[] = ["TARJETA", "TRANSFERENCIA"];
+
+// Función interna compartida: valida stock y arma los datos de detalle,
+// sin tocar la base de datos todavía. La usan ambos caminos (efectivo y MP).
+const construirDetalles = async (detalles: DetalleInput[]) => {
+  let total = 0;
+  const detallesData = [];
+  const itemsParaMP = [];
+
+  for (const item of detalles) {
+    const producto = await productoRepository.findById(item.productoId);
+    if (!producto) {
+      throw new NotFoundError(`Producto ${item.productoId} no encontrado`);
+    }
+    if (producto.stock < item.cantidad) {
+      throw new ConflictError(`Stock insuficiente para ${producto.nombre}`);
+    }
+
+    const precioUnitario = Number(producto.precioVenta);
+    const subtotal = precioUnitario * item.cantidad;
+    total += subtotal;
+
+    detallesData.push({
+      cantidad: item.cantidad,
+      precioUnitario,
+      subtotal,
+      producto: { connect: { id: item.productoId } },
+    });
+
+    itemsParaMP.push({
+      id: String(producto.id),
+      title: producto.nombre,
+      quantity: item.cantidad,
+      currency_id: "ARS",
+      unit_price: precioUnitario,
+    });
+  }
+
+  return { total, detallesData, itemsParaMP };
+};
+
 export const ventaService = {
   getAll: async (page: number, limit: number) => {
     const skip = (page - 1) * limit;
@@ -48,44 +91,67 @@ export const ventaService = {
     return venta;
   },
 
-  // arma la venta en estado PENDIENTE (sin tocar
-  // stock) y genera la preferencia de pago en Mercado Pago.
+  // Punto de entrada único: decide el camino según el método de pago.
   iniciarVenta: async (data: CrearVentaDTO) => {
-    let total = 0;
-    const detallesData = [];
-    const itemsParaMP = [];
-
-    // Solo lectura y cálculo, no se toca stock ni se crea nada todavía
-    for (const item of data.detalles) {
-      const producto = await productoRepository.findById(item.productoId);
-      if (!producto) {
-        throw new NotFoundError(`Producto ${item.productoId} no encontrado`);
-      }
-      if (producto.stock < item.cantidad) {
-        throw new ConflictError(`Stock insuficiente para ${producto.nombre}`);
-      }
-
-      const precioUnitario = Number(producto.precioVenta);
-      const subtotal = precioUnitario * item.cantidad;
-      total += subtotal;
-
-      detallesData.push({
-        cantidad: item.cantidad,
-        precioUnitario,
-        subtotal,
-        producto: { connect: { id: item.productoId } },
-      });
-
-      itemsParaMP.push({
-        id: String(producto.id),
-        title: producto.nombre,
-        quantity: item.cantidad,
-        currency_id: "ARS",
-        unit_price: precioUnitario,
-      });
+    if (METODOS_MERCADO_PAGO.includes(data.metodoPago)) {
+      return ventaService.iniciarVentaConMercadoPago(data);
     }
+    return ventaService.crearVentaDirecta(data);
+  },
 
-    // Se crea la venta en estado PENDIENTE (default del schema), sin tocar stock
+  // EFECTIVO: se completa al instante, sin pasar por Mercado Pago.
+  // Es la misma lógica que teníamos antes de integrar MP.
+  crearVentaDirecta: async (data: CrearVentaDTO) => {
+    const { total, detallesData } = await construirDetalles(data.detalles);
+
+    const venta = await prisma.$transaction(async (tx) => {
+      for (const item of data.detalles) {
+        const producto = await productoRepository.findById(item.productoId, tx);
+        if (!producto) {
+          throw new NotFoundError(`Producto ${item.productoId} no encontrado`);
+        }
+        if (producto.stock < item.cantidad) {
+          throw new ConflictError(`Stock insuficiente para ${producto.nombre}`);
+        }
+
+        const stockAnterior = producto.stock;
+        const stockNuevo = stockAnterior - item.cantidad;
+
+        await productoRepository.update(item.productoId, { stock: stockNuevo }, tx);
+
+        await movimientoRepository.create(
+          {
+            tipo: "SALIDA",
+            cantidad: item.cantidad,
+            stockAnterior,
+            stockNuevo,
+            motivo: "Venta (efectivo)",
+            producto: { connect: { id: item.productoId } },
+          },
+          tx
+        );
+      }
+
+      return ventaRepository.create(
+        {
+          total,
+          metodoPago: data.metodoPago,
+          estado: "COMPLETADA",
+          cliente: data.clienteId ? { connect: { id: data.clienteId } } : undefined,
+          detalles: { create: detallesData },
+        },
+        tx
+      );
+    });
+
+    return { ventaId: venta.id, initPoint: null };
+  },
+
+  // TARJETA / TRANSFERENCIA: arma la venta en estado PENDIENTE (sin tocar
+  // stock) y genera la preferencia de pago en Mercado Pago.
+  iniciarVentaConMercadoPago: async (data: CrearVentaDTO) => {
+    const { total, detallesData, itemsParaMP } = await construirDetalles(data.detalles);
+
     const venta = await ventaRepository.create({
       total,
       metodoPago: data.metodoPago,
@@ -93,7 +159,6 @@ export const ventaService = {
       detalles: { create: detallesData },
     });
 
-    // Se genera la preferencia en MP usando el id de la venta como referencia
     const preferenceClient = new Preference(mpClient);
     const preferencia = await preferenceClient.create({
       body: {
@@ -108,7 +173,6 @@ export const ventaService = {
       },
     });
 
-    // Guardamos el id de la preferencia para trazabilidad
     await ventaRepository.update(venta.id, {
       mercadoPagoPreferenceId: preferencia.id,
     });
@@ -119,9 +183,6 @@ export const ventaService = {
     };
   },
 
-  // Llamado desde el webhook cuando llega una notificación de pago.
-  // Nunca confía en el contenido del webhook a ciegas: siempre re-consulta
-  // el pago real a la API de Mercado Pago antes de actuar.
   confirmarPago: async (paymentId: string) => {
     const paymentClient = new Payment(mpClient);
     const payment = await paymentClient.get({ id: paymentId });
@@ -136,15 +197,11 @@ export const ventaService = {
       throw new NotFoundError(`Venta ${ventaId} no encontrada`);
     }
 
-    // Si ya no está pendiente, el webhook ya fue procesado antes (MP puede
-    // reenviar notificaciones duplicadas). No hacemos nada más.
     if (venta.estado !== "PENDIENTE") {
       return venta;
     }
 
     if (payment.status === "approved") {
-      // TRANSACCIÓN: recién acá, con el pago confirmado, se valida stock de
-      // nuevo (pudo cambiar desde que se inició la venta) y se descuenta.
       const ventaActualizada = await prisma.$transaction(async (tx) => {
         for (const detalle of venta.detalles) {
           const producto = await productoRepository.findById(detalle.productoId, tx);
@@ -190,8 +247,6 @@ export const ventaService = {
       });
     }
 
-    // Otros estados (pending, in_process, etc.) no se procesan todavía;
-    // se espera un próximo webhook con el estado final.
     return venta;
   },
 
