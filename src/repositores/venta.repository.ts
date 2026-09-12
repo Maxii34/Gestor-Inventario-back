@@ -37,4 +37,14 @@ export const ventaRepository = {
 
   delete: (id: number, tx?: PrismaTx) =>
     (tx ?? prisma).venta.delete({ where: { id } }),
+
+  //suma el total de ventas COMPLETADA dentro de un rango de fechas.
+  sumarRecaudacion: (desde: Date, hasta: Date) =>
+    prisma.venta.aggregate({
+      where: {
+        estado: "COMPLETADA",
+        fecha: { gte: desde, lte: hasta },
+      },
+      _sum: { total: true },
+    }),
 };
