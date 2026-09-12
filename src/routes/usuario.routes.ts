@@ -19,7 +19,7 @@ router.post("/logout", validate(refreshTokenSchema), usuarioController.logout);
 // Protegido: solo ADMIN logueado
 router.get("/", verificarToken, esAdmin, usuarioController.getAll);
 router.get("/:id", verificarToken, esAdmin, usuarioController.getById);
-router.post("/", validate(crearUsuarioSchema), usuarioController.create);
+router.post("/", verificarToken, esAdmin, validate(crearUsuarioSchema), usuarioController.create);
 router.put("/:id", verificarToken, esAdmin, validate(actualizarUsuarioSchema), usuarioController.update);
 router.delete("/:id", verificarToken, esAdmin, usuarioController.delete);
 
