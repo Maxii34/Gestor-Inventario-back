@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "MetodoPago" ADD VALUE 'PEDIDO_DISTANCIA';

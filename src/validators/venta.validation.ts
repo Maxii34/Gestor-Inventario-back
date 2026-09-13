@@ -7,7 +7,7 @@ export const detalleVentaSchema = z.object({
 
 export const crearVentaSchema = z.object({
   clienteId: z.number().int().positive().optional(),
-  metodoPago: z.enum(["EFECTIVO", "TRANSFERENCIA", "TARJETA"]),
+  metodoPago: z.enum(["EFECTIVO", "TRANSFERENCIA", "TARJETA", "PEDIDO_DISTANCIA"]),
   detalles: z.array(detalleVentaSchema).min(1, "Debe incluir al menos un detalle"),
 });
 

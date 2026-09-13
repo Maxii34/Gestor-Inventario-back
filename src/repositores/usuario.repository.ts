@@ -4,8 +4,8 @@ import { Prisma, RolUsuario } from "../generated/prisma/client";
 export const usuarioRepository = {
   findAll: () =>
     prisma.usuario.findMany({
-      where: { activo: true },
       select: { id: true, nombre: true, email: true, rol: true, activo: true, fechaCreacion: true },
+      orderBy: { id: 'asc' },
     }),
 
   findById: (id: number) =>
