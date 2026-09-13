@@ -27,7 +27,7 @@ export interface ActualizarVentaDTO {
 
 // Métodos que se procesan a través del checkout de Mercado Pago.
 // EFECTIVO no está acá: se cobra directo, sin pasar por MP.
-const METODOS_MERCADO_PAGO: MetodoPago[] = ["TARJETA", "TRANSFERENCIA"];
+const METODOS_MERCADO_PAGO: MetodoPago[] = ["PEDIDO_DISTANCIA"];
 
 // Función interna compartida: valida stock y arma los datos de detalle,
 // sin tocar la base de datos todavía. La usan ambos caminos (efectivo y MP).

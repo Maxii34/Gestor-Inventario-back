@@ -135,6 +135,7 @@ enum MetodoPago {
   EFECTIVO
   TRANSFERENCIA
   TARJETA
+  PEDIDO_DISTANCIA
 }
 
 enum EstadoVenta {
