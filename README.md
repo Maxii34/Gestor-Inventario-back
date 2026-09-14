@@ -17,6 +17,7 @@ Permite administrar productos, categorías, clientes, movimientos de stock y ven
 ![Zod](https://img.shields.io/badge/Zod-3E67B1?style=for-the-badge&logo=zod&logoColor=white)
 ![Mercado Pago](https://img.shields.io/badge/Mercado%20Pago-00B1EA?style=for-the-badge&logo=mercadopago&logoColor=white)
 ![bcrypt](https://img.shields.io/badge/bcrypt-338033?style=for-the-badge)
+![Vitest](https://img.shields.io/badge/Vitest-6E9F18?style=for-the-badge&logo=vitest&logoColor=white)
 
 ---
 
@@ -30,6 +31,7 @@ Permite administrar productos, categorías, clientes, movimientos de stock y ven
 - **Pagos con Mercado Pago (Checkout Pro)**: la venta queda en estado `PENDIENTE` hasta que Mercado Pago confirma el pago vía webhook; recién ahí se descuenta stock y se completa la venta.
 - **Paginación**: en los listados de clientes, productos, movimientos y ventas.
 - **Manejo de errores centralizado**: clases de error tipadas (`NotFoundError`, `ConflictError`, `BadRequestError`, `UnauthorizedError`, `ForbiddenError`) con status HTTP correctos y un único middleware de manejo de errores.
+- **Tests automatizados**: cobertura de los flujos de mayor riesgo del negocio (stock, ventas y autenticación) con Vitest.
 
 ---
 
@@ -129,6 +131,8 @@ BACKEND_URL=
 | `npm run dev` | Inicia el servidor en modo desarrollo con recarga automática |
 | `npm run build` | Compila el proyecto TypeScript a JavaScript |
 | `npm start` | Inicia el servidor compilado (producción) |
+| `npm test` | Corre la suite de tests una vez |
+| `npm run test:watch` | Corre los tests en modo observador (re-ejecuta al guardar cambios) |
 
 ---
 
@@ -145,6 +149,24 @@ BACKEND_URL=
 | GET/POST/PUT/DELETE | `/movimientos` | Movimientos de stock | Autenticado |
 | GET/POST/PUT/DELETE | `/ventas` | Gestión de ventas | Autenticado |
 | POST | `/ventas/webhook` | Notificaciones de Mercado Pago | Público (uso exclusivo de Mercado Pago) |
+
+---
+
+## 🧪 Testing
+
+El proyecto incluye tests unitarios con **Vitest**, enfocados en los flujos de negocio con mayor riesgo real (no se busca cobertura total, sino cubrir la lógica que puede fallar silenciosamente):
+
+- **`movimientoService`**: cálculo de stock en `ENTRADA`, `SALIDA` y `AJUSTE`, bloqueo por stock insuficiente, e integridad de la transacción atómica que descuenta stock y registra el movimiento.
+- **`ventaService`**: los dos caminos de cobro (inmediato y vía Mercado Pago), y el procesamiento del webhook de pago con sus casos borde (pago aprobado, rechazado, y notificaciones duplicadas).
+- **`usuarioService`**: hash y verificación de contraseñas, rotación de refresh tokens, y las reglas de negocio sobre el administrador único del sistema.
+
+Todos los tests usan mocks sobre los repositories y servicios externos (Prisma, Mercado Pago, bcrypt, JWT), por lo que no requieren conexión a una base de datos real para ejecutarse.
+
+Para correrlos:
+
+```bash
+npm test
+```
 
 ---
 
