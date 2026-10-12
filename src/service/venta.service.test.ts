@@ -74,7 +74,7 @@ describe("ventaService.iniciarVenta - EFECTIVO (venta directa)", () => {
 
   it("completa la venta al instante, sin generar link de pago", async () => {
     vi.mocked(productoRepository.findById).mockResolvedValue(productoFalso);
-    vi.mocked(productoRepository.update).mockResolvedValue(productoFalso);
+    vi.mocked(productoRepository.updateMany).mockResolvedValue({ count: 1 } as any);
     vi.mocked(movimientoRepository.create).mockResolvedValue({} as any);
     vi.mocked(ventaRepository.create).mockResolvedValue({ id: 10 } as any);
 
@@ -161,32 +161,65 @@ describe("ventaService.confirmarPago", () => {
 
     await ventaService.confirmarPago("pay-1");
 
-    // No se vuelve a tocar stock ni a actualizar la venta
+    // No se vuelve a tocar stock ni a actualizar la venta (ni siquiera el claim)
     expect(productoRepository.update).not.toHaveBeenCalled();
+    expect(productoRepository.updateMany).not.toHaveBeenCalled();
     expect(ventaRepository.update).not.toHaveBeenCalled();
+    expect(ventaRepository.updateMany).not.toHaveBeenCalled();
   });
 
-  it("con pago aprobado: descuenta stock, crea movimiento y completa la venta", async () => {
+  it("con pago aprobado: reclama la transición, descuenta atómico y completa la venta", async () => {
     paymentGetMock.mockResolvedValue({ id: "pay-1", external_reference: "42", status: "approved" });
     vi.mocked(ventaRepository.findById).mockResolvedValue({
       id: 42,
       estado: "PENDIENTE",
       detalles: [{ productoId: 1, cantidad: 2 }],
     } as any);
-    vi.mocked(productoRepository.findById).mockResolvedValue(productoFalso); // stock: 10
-    vi.mocked(productoRepository.update).mockResolvedValue(productoFalso);
+    vi.mocked(productoRepository.findById).mockResolvedValue({ ...productoFalso, stock: 8 } as any); // post-descuento: 10 - 2
+    vi.mocked(ventaRepository.updateMany).mockResolvedValue({ count: 1 } as any);
+    vi.mocked(productoRepository.updateMany).mockResolvedValue({ count: 1 } as any);
     vi.mocked(movimientoRepository.create).mockResolvedValue({} as any);
-    vi.mocked(ventaRepository.update).mockResolvedValue({ id: 42, estado: "COMPLETADA" } as any);
 
     await ventaService.confirmarPago("pay-1");
 
-    // 10 - 2 = 8
-    expect(productoRepository.update).toHaveBeenCalledWith(1, { stock: 8 }, expect.anything());
-    expect(ventaRepository.update).toHaveBeenCalledWith(
-      42,
+    // Claim condicional PENDIENTE → COMPLETADA con el paymentId
+    expect(ventaRepository.updateMany).toHaveBeenCalledWith(
+      { id: 42, estado: "PENDIENTE" },
       { estado: "COMPLETADA", mercadoPagoPaymentId: "pay-1" },
       expect.anything()
     );
+    // Descuento atómico y condicional
+    expect(productoRepository.updateMany).toHaveBeenCalledWith(
+      { id: 1, stock: { gte: 2 } },
+      { stock: { decrement: 2 } },
+      expect.anything()
+    );
+    // Movimiento con valores post-escritura: anterior 10, nuevo 8
+    expect(movimientoRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tipo: "SALIDA",
+        cantidad: 2,
+        stockAnterior: 10,
+        stockNuevo: 8,
+      }),
+      expect.anything()
+    );
+    expect(productoRepository.update).not.toHaveBeenCalled();
+  });
+
+  it("con pago aprobado sin stock: aborta con 409 sin completar ni crear movimiento", async () => {
+    paymentGetMock.mockResolvedValue({ id: "pay-1", external_reference: "42", status: "approved" });
+    vi.mocked(ventaRepository.findById).mockResolvedValue({
+      id: 42,
+      estado: "PENDIENTE",
+      detalles: [{ productoId: 1, cantidad: 2 }],
+    } as any);
+    vi.mocked(ventaRepository.updateMany).mockResolvedValue({ count: 1 } as any);
+    vi.mocked(productoRepository.updateMany).mockResolvedValue({ count: 0 } as any);
+    vi.mocked(productoRepository.findById).mockResolvedValue({ ...productoFalso, stock: 1 } as any);
+
+    await expect(ventaService.confirmarPago("pay-1")).rejects.toThrow(ConflictError);
+    expect(movimientoRepository.create).not.toHaveBeenCalled();
   });
 
   it("con pago rechazado: marca la venta como RECHAZADA sin tocar stock", async () => {
@@ -236,5 +269,363 @@ describe("ventaService.delete", () => {
     vi.mocked(ventaRepository.findById).mockResolvedValue(null);
 
     await expect(ventaService.delete(999)).rejects.toThrow(NotFoundError);
+  });
+
+  it("prohíbe el borrado físico de una venta COMPLETADA (409, sin borrar nada)", async () => {
+    vi.mocked(ventaRepository.findById).mockResolvedValue({
+      id: 1,
+      estado: "COMPLETADA",
+      detalles: [],
+    } as any);
+
+    await expect(ventaService.delete(1)).rejects.toThrow(ConflictError);
+    expect(ventaRepository.delete).not.toHaveBeenCalled();
+  });
+
+  it("prohíbe el borrado físico de una venta PENDIENTE (409)", async () => {
+    vi.mocked(ventaRepository.findById).mockResolvedValue({
+      id: 1,
+      estado: "PENDIENTE",
+      detalles: [],
+    } as any);
+
+    await expect(ventaService.delete(1)).rejects.toThrow(ConflictError);
+    expect(ventaRepository.delete).not.toHaveBeenCalled();
+  });
+});
+
+describe("ventaService.update - máquina de estados", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("rechaza completar manualmente una venta PENDIENTE (409)", async () => {
+    vi.mocked(ventaRepository.findById).mockResolvedValue({
+      id: 1,
+      estado: "PENDIENTE",
+      detalles: [],
+    } as any);
+
+    await expect(ventaService.update(1, { estado: "COMPLETADA" })).rejects.toThrow(
+      ConflictError
+    );
+    expect(ventaRepository.update).not.toHaveBeenCalled();
+  });
+
+  it("rechaza anular por PUT: indica usar la operación explícita (409)", async () => {
+    vi.mocked(ventaRepository.findById).mockResolvedValue({
+      id: 1,
+      estado: "PENDIENTE",
+      detalles: [],
+    } as any);
+
+    await expect(ventaService.update(1, { estado: "ANULADA" })).rejects.toThrow(
+      ConflictError
+    );
+    expect(ventaRepository.update).not.toHaveBeenCalled();
+  });
+
+  it("rechaza cambiar el método de pago de una venta PENDIENTE (409)", async () => {
+    vi.mocked(ventaRepository.findById).mockResolvedValue({
+      id: 1,
+      estado: "PENDIENTE",
+      detalles: [],
+    } as any);
+
+    await expect(
+      ventaService.update(1, { metodoPago: "EFECTIVO" as never })
+    ).rejects.toThrow(ConflictError);
+  });
+
+  it("rechaza cualquier modificación de una venta COMPLETADA (409)", async () => {
+    vi.mocked(ventaRepository.findById).mockResolvedValue({
+      id: 1,
+      estado: "COMPLETADA",
+      detalles: [],
+    } as any);
+    vi.mocked(clienteRepository.findById).mockResolvedValue({ id: 2 } as any);
+
+    await expect(ventaService.update(1, { clienteId: 2 })).rejects.toThrow(ConflictError);
+    expect(ventaRepository.update).not.toHaveBeenCalled();
+  });
+
+  it("rechaza modificaciones desde estados finales ANULADA/RECHAZADA (409)", async () => {
+    vi.mocked(clienteRepository.findById).mockResolvedValue({ id: 2 } as any);
+    for (const estado of ["ANULADA", "RECHAZADA"]) {
+      vi.mocked(ventaRepository.findById).mockResolvedValue({ id: 1, estado } as any);
+      await expect(ventaService.update(1, { clienteId: 2 })).rejects.toThrow(
+        ConflictError
+      );
+    }
+    expect(ventaRepository.update).not.toHaveBeenCalled();
+  });
+
+  it("permite reasignar cliente en una venta PENDIENTE", async () => {
+    vi.mocked(ventaRepository.findById).mockResolvedValue({
+      id: 1,
+      estado: "PENDIENTE",
+      detalles: [],
+    } as any);
+    vi.mocked(clienteRepository.findById).mockResolvedValue({ id: 2 } as any);
+    vi.mocked(ventaRepository.update).mockResolvedValue({ id: 1 } as any);
+
+    await ventaService.update(1, { clienteId: 2 });
+    expect(ventaRepository.update).toHaveBeenCalledWith(1, { clienteId: 2 });
+  });
+});
+
+describe("ventaService.anular", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("lanza NotFoundError si la venta no existe", async () => {
+    vi.mocked(ventaRepository.findById).mockResolvedValue(null);
+
+    await expect(ventaService.anular(999, "motivo")).rejects.toThrow(NotFoundError);
+  });
+
+  it("exige motivo no vacío (400)", async () => {
+    await expect(ventaService.anular(1, "   ")).rejects.toThrow(BadRequestError);
+    expect(ventaRepository.findById).not.toHaveBeenCalled();
+  });
+
+  it("rechaza anular desde estados finales ANULADA/RECHAZADA (409)", async () => {
+    for (const estado of ["ANULADA", "RECHAZADA"]) {
+      vi.mocked(ventaRepository.findById).mockResolvedValue({ id: 1, estado } as any);
+      await expect(ventaService.anular(1, "duplicada")).rejects.toThrow(ConflictError);
+    }
+    expect(ventaRepository.update).not.toHaveBeenCalled();
+    expect(ventaRepository.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("anula una venta PENDIENTE sin tocar stock", async () => {
+    vi.mocked(ventaRepository.findById).mockResolvedValue({
+      id: 1,
+      estado: "PENDIENTE",
+      detalles: [],
+    } as any);
+    vi.mocked(ventaRepository.update).mockResolvedValue({ id: 1, estado: "ANULADA" } as any);
+
+    const resultado = await ventaService.anular(1, "el cliente canceló");
+    expect(ventaRepository.update).toHaveBeenCalledWith(1, { estado: "ANULADA" });
+    expect(productoRepository.update).not.toHaveBeenCalled();
+    expect(movimientoRepository.create).not.toHaveBeenCalled();
+    expect(resultado).toEqual({ id: 1, estado: "ANULADA" });
+  });
+
+  it("anula una venta COMPLETADA reponiendo stock con movimientos ENTRADA", async () => {
+    const venta = {
+      id: 1,
+      estado: "COMPLETADA",
+      detalles: [{ productoId: 1, cantidad: 2 }],
+    } as any;
+    vi.mocked(ventaRepository.findById).mockResolvedValue(venta);
+    vi.mocked(productoRepository.findById).mockResolvedValue({ ...productoFalso } as any);
+    vi.mocked(ventaRepository.updateMany).mockResolvedValue({ count: 1 } as any);
+    // Registro devuelto post-incremento: 10 + 2 = 12
+    vi.mocked(productoRepository.update).mockResolvedValue({ ...productoFalso, stock: 12 } as any);
+    vi.mocked(movimientoRepository.create).mockResolvedValue({} as any);
+
+    await ventaService.anular(1, "devolución");
+
+    expect(ventaRepository.updateMany).toHaveBeenCalledWith(
+      { id: 1, estado: "COMPLETADA" },
+      { estado: "ANULADA" },
+      expect.anything()
+    );
+    expect(productoRepository.update).toHaveBeenCalledWith(
+      1,
+      { stock: { increment: 2 } },
+      expect.anything()
+    );
+    expect(movimientoRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tipo: "ENTRADA",
+        cantidad: 2,
+        stockAnterior: 10,
+        stockNuevo: 12,
+        motivo: "Anulación venta #1: devolución",
+      }),
+      expect.anything()
+    );
+  });
+
+  it("si falla la compensación, el error propaga y no hay escrituras fuera de la transacción", async () => {
+    const venta = {
+      id: 1,
+      estado: "COMPLETADA",
+      detalles: [{ productoId: 1, cantidad: 2 }],
+    } as any;
+    vi.mocked(ventaRepository.findById).mockResolvedValue(venta);
+    vi.mocked(productoRepository.findById).mockResolvedValue({ ...productoFalso } as any);
+    vi.mocked(ventaRepository.updateMany).mockResolvedValue({ count: 1 } as any);
+    vi.mocked(productoRepository.update).mockResolvedValue({} as any);
+    vi.mocked(movimientoRepository.create).mockRejectedValue(new Error("fallo de BD"));
+
+    await expect(ventaService.anular(1, "devolución")).rejects.toThrow("fallo de BD");
+    // Nada fuera de la transacción: la atomicidad real la da el rollback de Prisma.
+    expect(ventaRepository.update).not.toHaveBeenCalled();
+    expect(ventaRepository.delete).not.toHaveBeenCalled();
+  });
+
+  it("dos anulaciones concurrentes compensan una sola vez (la segunda recibe 409)", async () => {
+    let estado = "COMPLETADA";
+    const ventaBase = {
+      id: 1,
+      detalles: [{ productoId: 1, cantidad: 2 }],
+    } as any;
+    vi.mocked(ventaRepository.findById).mockImplementation((async () => ({
+      ...ventaBase,
+      estado,
+    })) as any);
+    vi.mocked(productoRepository.findById).mockResolvedValue({ ...productoFalso } as any);
+    vi.mocked(ventaRepository.updateMany).mockImplementation((async (where: any) => {
+      if (where?.estado === "COMPLETADA" && estado === "COMPLETADA") {
+        estado = "ANULADA";
+        return { count: 1 } as any;
+      }
+      return { count: 0 } as any;
+    }) as any);
+    vi.mocked(productoRepository.update).mockResolvedValue({ ...productoFalso, stock: 12 } as any);
+    vi.mocked(movimientoRepository.create).mockResolvedValue({} as any);
+
+    const [r1, r2] = await Promise.allSettled([
+      ventaService.anular(1, "doble clic"),
+      ventaService.anular(1, "doble clic"),
+    ]);
+
+    const exitos = [r1, r2].filter((r) => r.status === "fulfilled");
+    const conflictos = [r1, r2].filter(
+      (r) => r.status === "rejected" && (r as PromiseRejectedResult).reason instanceof ConflictError
+    );
+    expect(exitos).toHaveLength(1);
+    expect(conflictos).toHaveLength(1);
+    expect(movimientoRepository.create).toHaveBeenCalledTimes(1);
+    expect(productoRepository.update).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("webhook repetido: no descuenta stock dos veces", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("segunda notificación approved sobre venta ya COMPLETADA no toca stock", async () => {
+    let estado = "PENDIENTE";
+    paymentGetMock.mockResolvedValue({
+      id: "pay-1",
+      external_reference: "7",
+      status: "approved",
+    });
+    vi.mocked(ventaRepository.findById).mockImplementation(((id: number) =>
+      Promise.resolve(
+        id === 7
+          ? { id: 7, estado, detalles: [{ productoId: 1, cantidad: 2 }] }
+          : { ...productoFalso, stock: 8 }
+      )) as any);
+    vi.mocked(ventaRepository.updateMany).mockImplementation((async () => {
+      estado = "COMPLETADA";
+      return { count: 1 };
+    }) as any);
+    vi.mocked(productoRepository.updateMany).mockResolvedValue({ count: 1 } as any);
+    vi.mocked(movimientoRepository.create).mockResolvedValue({} as any);
+
+    await ventaService.confirmarPago("pay-1");
+    await ventaService.confirmarPago("pay-1");
+
+    expect(paymentGetMock).toHaveBeenCalledTimes(2);
+    // Un solo claim, un solo descuento, un solo movimiento SALIDA
+    expect(ventaRepository.updateMany).toHaveBeenCalledTimes(1);
+    expect(productoRepository.updateMany).toHaveBeenCalledTimes(1);
+    expect(movimientoRepository.create).toHaveBeenCalledTimes(1);
+    expect(productoRepository.update).not.toHaveBeenCalled();
+  });
+
+  it("dos webhooks simultáneos para la misma venta: un solo descuento", async () => {
+    let estado = "PENDIENTE";
+    paymentGetMock.mockResolvedValue({
+      id: "pay-9",
+      external_reference: "9",
+      status: "approved",
+    });
+    vi.mocked(ventaRepository.findById).mockImplementation(((id: number) =>
+      Promise.resolve(
+        id === 9
+          ? { id: 9, estado, detalles: [{ productoId: 1, cantidad: 2 }] }
+          : { ...productoFalso, stock: 8 }
+      )) as any);
+    // Solo el primer claim concurrente es concedido (como en PG con row lock)
+    vi.mocked(ventaRepository.updateMany).mockImplementation((async (where: any) => {
+      if (where?.estado === "PENDIENTE" && estado === "PENDIENTE") {
+        estado = "COMPLETADA";
+        return { count: 1 };
+      }
+      return { count: 0 };
+    }) as any);
+    vi.mocked(productoRepository.updateMany).mockResolvedValue({ count: 1 } as any);
+    vi.mocked(movimientoRepository.create).mockResolvedValue({} as any);
+
+    const [r1, r2] = await Promise.allSettled([
+      ventaService.confirmarPago("pay-9"),
+      ventaService.confirmarPago("pay-9"),
+    ]);
+
+    expect(r1.status).toBe("fulfilled");
+    expect(r2.status).toBe("fulfilled");
+    expect(productoRepository.updateMany).toHaveBeenCalledTimes(1);
+    expect(movimientoRepository.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("fallo posterior al claim: no queda completada parcial ni movimientos huérfanos", async () => {
+    paymentGetMock.mockResolvedValue({ id: "pay-3", external_reference: "11", status: "approved" });
+    vi.mocked(ventaRepository.findById).mockResolvedValue({
+      id: 11,
+      estado: "PENDIENTE",
+      detalles: [{ productoId: 1, cantidad: 2 }],
+    } as any);
+    vi.mocked(ventaRepository.updateMany).mockResolvedValue({ count: 1 } as any);
+    vi.mocked(productoRepository.updateMany).mockResolvedValue({ count: 1 } as any);
+    vi.mocked(productoRepository.findById).mockResolvedValue({ ...productoFalso, stock: 8 } as any);
+    vi.mocked(movimientoRepository.create).mockRejectedValue(new Error("fallo de BD"));
+
+    await expect(ventaService.confirmarPago("pay-3")).rejects.toThrow("fallo de BD");
+    // La atomicidad real la da el rollback del tx (incluye el claim); acá se
+    // verifica que el error propaga y no hay escrituras fuera de la transacción.
+    expect(ventaRepository.update).not.toHaveBeenCalled();
+    expect(ventaRepository.delete).not.toHaveBeenCalled();
+  });
+
+  it("dos ventas directas concurrentes no generan stock negativo ni pierden updates", async () => {
+    let stock = 3;
+    vi.mocked(productoRepository.findById).mockImplementation(((id: number) =>
+      Promise.resolve(
+        id === 1 ? { ...productoFalso, nombre: "P", stock } : null
+      )) as any);
+    // Simula PG: decrement condicional atómico y serializado
+    vi.mocked(productoRepository.updateMany).mockImplementation((async () => {
+      if (stock >= 2) {
+        stock -= 2;
+        return { count: 1 };
+      }
+      return { count: 0 };
+    }) as any);
+    vi.mocked(movimientoRepository.create).mockResolvedValue({} as any);
+    vi.mocked(ventaRepository.create).mockResolvedValue({ id: 20 } as any);
+
+    const [r1, r2] = await Promise.allSettled([
+      ventaService.iniciarVenta({ metodoPago: "EFECTIVO", detalles: [{ productoId: 1, cantidad: 2 }] }),
+      ventaService.iniciarVenta({ metodoPago: "EFECTIVO", detalles: [{ productoId: 1, cantidad: 2 }] }),
+    ]);
+
+    const exitos = [r1, r2].filter((r) => r.status === "fulfilled");
+    const conflictos = [r1, r2].filter(
+      (r) => r.status === "rejected" && (r as PromiseRejectedResult).reason instanceof ConflictError
+    );
+    // stock 3 solo alcanza para una venta de 2 (3-2=1 < 2 para la segunda)
+    expect(exitos).toHaveLength(1);
+    expect(conflictos).toHaveLength(1);
+    expect(stock).toBe(1);
+    expect(movimientoRepository.create).toHaveBeenCalledTimes(1);
   });
 });

@@ -62,4 +62,10 @@ export const ventaController = {
     res.status(200).json({ ok: true, mensaje: "Venta eliminada correctamente", data: null });
   },
 
+  anular: async (req: Request, res: Response) => {
+    const id = Number(req.params.id);
+    const venta = await ventaService.anular(id, req.body.motivo);
+    res.status(200).json({ ok: true, mensaje: "Venta anulada correctamente", data: venta });
+  },
+
 };

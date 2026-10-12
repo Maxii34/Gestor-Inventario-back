@@ -1,9 +1,9 @@
 import { Router } from "express";
 import { ventaController } from "../controllers/venta.controller";
 import { validate } from "../middlewares/validate";
-import { verificarToken } from "../middlewares/auth.middleware";
+import { verificarToken, esAdmin } from "../middlewares/auth.middleware";
 import { verificarFirmaMercadoPago } from "../middlewares/mercadopagoWebhook";
-import { crearVentaSchema, actualizarVentaSchema } from "../validators/venta.validation";
+import { crearVentaSchema, actualizarVentaSchema, anularVentaSchema } from "../validators/venta.validation";
 
 const router = Router();
 
@@ -15,7 +15,13 @@ router.post("/", verificarToken, validate(crearVentaSchema), ventaController.cre
 // no puede mandar tu token JWT. Sin firma válida se responde 401 y no se procesa.
 router.post("/webhook", verificarFirmaMercadoPago, ventaController.webhook);
 
-router.put("/:id", verificarToken, validate(actualizarVentaSchema), ventaController.update);
-router.delete("/:id", verificarToken, ventaController.delete);
+router.put("/:id", verificarToken, esAdmin, validate(actualizarVentaSchema), ventaController.update);
+// Borrado físico prohibido al servicio: este endpoint siempre responde 409.
+// La vía de egreso es POST /:id/anular.
+router.delete("/:id", verificarToken, esAdmin, ventaController.delete);
+
+// Anulación explícita con motivo obligatorio (ADMIN). PENDIENTE → ANULADA directo;
+// COMPLETADA → ANULADA con reposición de stock en transacción.
+router.post("/:id/anular", verificarToken, esAdmin, validate(anularVentaSchema), ventaController.anular);
 
 export default router;

@@ -44,22 +44,51 @@ export const movimientoService = {
       throw new NotFoundError("Producto no encontrado");
     }
 
-    const stockAnterior = producto.stock;
-    let stockNuevo = stockAnterior;
-
-    if (data.tipo === "ENTRADA") {
-      stockNuevo = stockAnterior + data.cantidad;
-    } else if (data.tipo === "SALIDA") {
-      stockNuevo = stockAnterior - data.cantidad;
-      if (stockNuevo < 0) {
-        throw new ConflictError("Stock insuficiente");
-      }
-    } else if (data.tipo === "AJUSTE") {
-      stockNuevo = data.cantidad;
+    // Validación rápida previa (UX): la garantía real está dentro del tx.
+    const stockPrevio = producto.stock;
+    if (data.tipo === "SALIDA" && stockPrevio - data.cantidad < 0) {
+      throw new ConflictError("Stock insuficiente");
     }
 
     const movimiento = await prisma.$transaction(async (tx) => {
-      await productoRepository.update(data.productoId, { stock: stockNuevo }, tx);
+      let stockNuevo: number;
+      let stockAnterior: number;
+
+      if (data.tipo === "ENTRADA") {
+        // `increment` + registro devuelto: sin fotos previas ni updates perdidos.
+        const actualizado = await productoRepository.update(
+          data.productoId,
+          { stock: { increment: data.cantidad } },
+          tx
+        );
+        stockNuevo = actualizado.stock;
+        stockAnterior = stockNuevo - data.cantidad;
+      } else if (data.tipo === "SALIDA") {
+        // Descuento atómico y condicional: concurrentes no generan negativo.
+        const descuento = await productoRepository.updateMany(
+          { id: data.productoId, stock: { gte: data.cantidad } },
+          { stock: { decrement: data.cantidad } },
+          tx
+        );
+        if (descuento.count === 0) {
+          throw new ConflictError("Stock insuficiente");
+        }
+        const actual = await productoRepository.findById(data.productoId, tx);
+        if (!actual) {
+          throw new NotFoundError("Producto no encontrado");
+        }
+        stockNuevo = actual.stock;
+        stockAnterior = stockNuevo + data.cantidad;
+      } else {
+        // AJUSTE fija valor absoluto por definición; el nuevo es el escrito.
+        const actualizado = await productoRepository.update(
+          data.productoId,
+          { stock: data.cantidad },
+          tx
+        );
+        stockAnterior = stockPrevio;
+        stockNuevo = actualizado.stock;
+      }
 
       return movimientoRepository.create(
         {

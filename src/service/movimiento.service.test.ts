@@ -56,42 +56,54 @@ describe("movimientoService.create", () => {
     // Confirmamos que, al fallar la validación, NUNCA se llegó a tocar la
     // base de datos (ni update de stock ni create de movimiento).
     expect(productoRepository.update).not.toHaveBeenCalled();
+    expect(productoRepository.updateMany).not.toHaveBeenCalled();
     expect(movimientoRepository.create).not.toHaveBeenCalled();
   });
 
   it("calcula correctamente el stockNuevo en una ENTRADA", async () => {
     vi.mocked(productoRepository.findById).mockResolvedValue(productoFalso); // stock: 10
-    vi.mocked(productoRepository.update).mockResolvedValue(productoFalso);
+    vi.mocked(productoRepository.update).mockResolvedValue({ ...productoFalso, stock: 15 } as any);
     vi.mocked(movimientoRepository.create).mockResolvedValue({} as any);
 
     await movimientoService.create({ tipo: "ENTRADA", cantidad: 5, productoId: 1 });
 
-    // 10 + 5 = 15
+    // Incremento atómico 10 + 5 = 15, valores del registro escrito
     expect(productoRepository.update).toHaveBeenCalledWith(
       1,
-      { stock: 15 },
+      { stock: { increment: 5 } },
       expect.anything() // el "tx" falso que le pasamos
     );
-  });
-
-  it("calcula correctamente el stockNuevo en una SALIDA válida", async () => {
-    vi.mocked(productoRepository.findById).mockResolvedValue(productoFalso); // stock: 10
-    vi.mocked(productoRepository.update).mockResolvedValue(productoFalso);
-    vi.mocked(movimientoRepository.create).mockResolvedValue({} as any);
-
-    await movimientoService.create({ tipo: "SALIDA", cantidad: 3, productoId: 1 });
-
-    // 10 - 3 = 7
-    expect(productoRepository.update).toHaveBeenCalledWith(
-      1,
-      { stock: 7 },
+    expect(movimientoRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({ stockAnterior: 10, stockNuevo: 15 }),
       expect.anything()
     );
   });
 
+  it("calcula correctamente el stockNuevo en una SALIDA válida", async () => {
+    vi.mocked(productoRepository.findById)
+      .mockResolvedValueOnce(productoFalso) // pre-check: stock 10
+      .mockResolvedValue({ ...productoFalso, stock: 7 } as any); // lectura post-descuento
+    vi.mocked(productoRepository.updateMany).mockResolvedValue({ count: 1 } as any);
+    vi.mocked(movimientoRepository.create).mockResolvedValue({} as any);
+
+    await movimientoService.create({ tipo: "SALIDA", cantidad: 3, productoId: 1 });
+
+    // Descuento atómico y condicional: 10 - 3 = 7
+    expect(productoRepository.updateMany).toHaveBeenCalledWith(
+      { id: 1, stock: { gte: 3 } },
+      { stock: { decrement: 3 } },
+      expect.anything()
+    );
+    expect(movimientoRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({ stockAnterior: 10, stockNuevo: 7 }),
+      expect.anything()
+    );
+    expect(productoRepository.update).not.toHaveBeenCalled();
+  });
+
   it("en un AJUSTE, el stockNuevo es directamente la cantidad indicada", async () => {
     vi.mocked(productoRepository.findById).mockResolvedValue(productoFalso); // stock: 10
-    vi.mocked(productoRepository.update).mockResolvedValue(productoFalso);
+    vi.mocked(productoRepository.update).mockResolvedValue({ ...productoFalso, stock: 50 } as any);
     vi.mocked(movimientoRepository.create).mockResolvedValue({} as any);
 
     await movimientoService.create({ tipo: "AJUSTE", cantidad: 50, productoId: 1 });
@@ -99,6 +111,10 @@ describe("movimientoService.create", () => {
     expect(productoRepository.update).toHaveBeenCalledWith(
       1,
       { stock: 50 },
+      expect.anything()
+    );
+    expect(movimientoRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({ stockAnterior: 10, stockNuevo: 50 }),
       expect.anything()
     );
   });
