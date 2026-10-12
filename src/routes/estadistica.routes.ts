@@ -4,6 +4,6 @@ import { verificarToken } from "../middlewares/auth.middleware";
 
 const router = Router();
 
-router.get("/recaudacion", estadisticaController.getRecaudacion);
+router.get("/recaudacion", verificarToken, estadisticaController.getRecaudacion);
 
 export default router;
