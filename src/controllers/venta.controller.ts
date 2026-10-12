@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { ventaService } from "../service/venta.service";
+import { MpWebhookRequest } from "../middlewares/mercadopagoWebhook";
 
 export const ventaController = {
 
@@ -34,13 +35,16 @@ export const ventaController = {
   },
 
   // Nuevo: acá le pega Mercado Pago, no el frontend ni un usuario común.
+  // El middleware verificarFirmaMercadoPago ya autenticó la notificación y dejó
+  // el id firmado en req.mpDataId: se procesa ese valor (respaldo: body.data.id).
   // Siempre respondemos 200 rápido (MP reintenta si no le contestás a tiempo),
   // incluso si la notificación no era del tipo que nos interesa.
   webhook: async (req: Request, res: Response) => {
     const { type, data } = req.body;
+    const paymentId = (req as MpWebhookRequest).mpDataId ?? data?.id;
 
-    if (type === "payment" && data?.id) {
-      await ventaService.confirmarPago(data.id);
+    if (type === "payment" && paymentId) {
+      await ventaService.confirmarPago(String(paymentId));
     }
 
     res.status(200).send("ok");

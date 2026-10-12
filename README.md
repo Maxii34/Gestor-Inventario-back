@@ -114,6 +114,9 @@ JWT_EXPIRES_IN=
 
 # Mercado Pago
 MERCADOPAGO_ACCESS_TOKEN=
+# Clave secreta de webhooks ("Tus integraciones > Webhooks"). Obligatoria para que
+# POST /ventas/webhook acepte notificaciones (sin ella responde 503 y no confirma pagos).
+MERCADOPAGO_WEBHOOK_SECRET=
 
 # URLs
 FRONTEND_URL=
