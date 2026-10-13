@@ -13,8 +13,10 @@ COPY . .
 #. 5- instalar dependencias
 RUN npm install --ignore-scripts
 
-#. 6- generar el cliente de Prisma
-RUN DATABASE_URL="postgresql://neondb_owner:npg_1lCO3uzonpZH@ep-rough-wind-a5vd2at1-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require" npx prisma generate
+#. 6- generar el cliente de Prisma (usa un valor temporal no secreto solo para el build;
+#. en runtime la app toma DATABASE_URL real desde el entorno / env_file, nunca hardcodeada acá)
+ARG DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/placeholder"
+RUN npx prisma generate
 
 #. 7- exponer el puerto en el que la aplicación escuchará
 EXPOSE 3000

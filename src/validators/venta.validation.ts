@@ -15,4 +15,8 @@ export const actualizarVentaSchema = z.object({
   estado: z.enum(["COMPLETADA", "ANULADA"]).optional(),
 }).strict();
 
+export const anularVentaSchema = z.object({
+  motivo: z.string().trim().min(1, "El motivo de anulación es obligatorio").max(500),
+}).strict();
+
 export type CrearVentaInput = z.infer<typeof crearVentaSchema>;
