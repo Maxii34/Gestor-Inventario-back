@@ -42,7 +42,7 @@ describe("movimientoService.create", () => {
     vi.mocked(productoRepository.findById).mockResolvedValue(null);
 
     await expect(
-      movimientoService.create({ tipo: "ENTRADA", cantidad: 5, productoId: 999 })
+      movimientoService.create({ tipo: "ENTRADA", cantidad: 5, productoId: 999 }, 1)
     ).rejects.toThrow(NotFoundError);
   });
 
@@ -50,7 +50,7 @@ describe("movimientoService.create", () => {
     vi.mocked(productoRepository.findById).mockResolvedValue(productoFalso); // stock: 10
 
     await expect(
-      movimientoService.create({ tipo: "SALIDA", cantidad: 999, productoId: 1 })
+      movimientoService.create({ tipo: "SALIDA", cantidad: 999, productoId: 1 }, 1)
     ).rejects.toThrow(ConflictError);
 
     // Confirmamos que, al fallar la validación, NUNCA se llegó a tocar la
@@ -65,7 +65,7 @@ describe("movimientoService.create", () => {
     vi.mocked(productoRepository.update).mockResolvedValue({ ...productoFalso, stock: 15 } as any);
     vi.mocked(movimientoRepository.create).mockResolvedValue({} as any);
 
-    await movimientoService.create({ tipo: "ENTRADA", cantidad: 5, productoId: 1 });
+    await movimientoService.create({ tipo: "ENTRADA", cantidad: 5, productoId: 1 }, 1);
 
     // Incremento atómico 10 + 5 = 15, valores del registro escrito
     expect(productoRepository.update).toHaveBeenCalledWith(
@@ -86,11 +86,11 @@ describe("movimientoService.create", () => {
     vi.mocked(productoRepository.updateMany).mockResolvedValue({ count: 1 } as any);
     vi.mocked(movimientoRepository.create).mockResolvedValue({} as any);
 
-    await movimientoService.create({ tipo: "SALIDA", cantidad: 3, productoId: 1 });
+    await movimientoService.create({ tipo: "SALIDA", cantidad: 3, productoId: 1 }, 1);
 
     // Descuento atómico y condicional: 10 - 3 = 7
     expect(productoRepository.updateMany).toHaveBeenCalledWith(
-      { id: 1, stock: { gte: 3 } },
+      { id: 1, comercioId: 1, stock: { gte: 3 } },
       { stock: { decrement: 3 } },
       expect.anything()
     );
@@ -106,7 +106,7 @@ describe("movimientoService.create", () => {
     vi.mocked(productoRepository.update).mockResolvedValue({ ...productoFalso, stock: 50 } as any);
     vi.mocked(movimientoRepository.create).mockResolvedValue({} as any);
 
-    await movimientoService.create({ tipo: "AJUSTE", cantidad: 50, productoId: 1 });
+    await movimientoService.create({ tipo: "AJUSTE", cantidad: 50, productoId: 1 }, 1);
 
     expect(productoRepository.update).toHaveBeenCalledWith(
       1,
@@ -128,14 +128,14 @@ describe("movimientoService.getById", () => {
   it("lanza NotFoundError si el movimiento no existe", async () => {
     vi.mocked(movimientoRepository.findById).mockResolvedValue(null);
 
-    await expect(movimientoService.getById(999)).rejects.toThrow(NotFoundError);
+    await expect(movimientoService.getById(999, 1)).rejects.toThrow(NotFoundError);
   });
 
   it("devuelve el movimiento si existe", async () => {
     const movimientoFalso = { id: 1, tipo: "ENTRADA" } as any;
     vi.mocked(movimientoRepository.findById).mockResolvedValue(movimientoFalso);
 
-    const resultado = await movimientoService.getById(1);
+    const resultado = await movimientoService.getById(1, 1);
     expect(resultado).toEqual(movimientoFalso);
   });
 });
@@ -149,7 +149,7 @@ describe("movimientoService.update", () => {
     vi.mocked(movimientoRepository.findById).mockResolvedValue(null);
 
     await expect(
-      movimientoService.update(999, { motivo: "test" })
+      movimientoService.update(999, 1, { motivo: "test" })
     ).rejects.toThrow(NotFoundError);
   });
 
@@ -160,7 +160,7 @@ describe("movimientoService.update", () => {
     vi.mocked(movimientoRepository.findById).mockResolvedValue(movimientoExistente);
     vi.mocked(movimientoRepository.update).mockResolvedValue(movimientoActualizado);
 
-    const resultado = await movimientoService.update(1, { motivo: "nuevo" });
+    const resultado = await movimientoService.update(1, 1, { motivo: "nuevo" });
 
     expect(resultado).toEqual(movimientoActualizado);
     expect(movimientoRepository.update).toHaveBeenCalledWith(1, { motivo: "nuevo" });
@@ -175,7 +175,7 @@ describe("movimientoService.delete", () => {
   it("lanza NotFoundError si el movimiento no existe", async () => {
     vi.mocked(movimientoRepository.findById).mockResolvedValue(null);
 
-    await expect(movimientoService.delete(999)).rejects.toThrow(NotFoundError);
+    await expect(movimientoService.delete(999, 1)).rejects.toThrow(NotFoundError);
   });
 
   it("elimina el movimiento si existe", async () => {
@@ -183,7 +183,7 @@ describe("movimientoService.delete", () => {
     vi.mocked(movimientoRepository.findById).mockResolvedValue(movimientoExistente);
     vi.mocked(movimientoRepository.delete).mockResolvedValue(movimientoExistente);
 
-    await movimientoService.delete(1);
+    await movimientoService.delete(1, 1);
 
     expect(movimientoRepository.delete).toHaveBeenCalledWith(1);
   });

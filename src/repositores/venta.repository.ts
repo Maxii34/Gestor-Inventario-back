@@ -4,17 +4,27 @@ import { Prisma } from "../generated/prisma/client";
 type PrismaTx = Prisma.TransactionClient;
 
 export const ventaRepository = {
-  findAll: (skip?: number, take?: number) =>
+  findAll: (comercioId: number, skip?: number, take?: number) =>
     prisma.venta.findMany({
+      where: { comercioId },
       skip,
       take,
       orderBy: { fecha: "desc" },
       include: { detalles: true, cliente: true },
     }),
 
-  count: () => prisma.venta.count(),
+  count: (comercioId: number) => prisma.venta.count({ where: { comercioId } }),
 
-  findById: (id: number, tx?: PrismaTx) =>
+  findById: (id: number, comercioId: number, tx?: PrismaTx) =>
+    (tx ?? prisma).venta.findFirst({
+      where: { id, comercioId },
+      include: { detalles: { include: { producto: true } }, cliente: true },
+    }),
+
+  // Solo para el webhook de MP: la notificación no trae comercio del
+  // solicitante (la autentica la firma HMAC) y el external_reference es el id
+  // global de la venta. El servicio sigue operando con venta.comercioId.
+  findByIdGlobal: (id: number, tx?: PrismaTx) =>
     (tx ?? prisma).venta.findUnique({
       where: { id },
       include: { detalles: { include: { producto: true } }, cliente: true },
@@ -44,9 +54,10 @@ export const ventaRepository = {
     (tx ?? prisma).venta.delete({ where: { id } }),
 
   //suma el total de ventas COMPLETADA dentro de un rango de fechas.
-  sumarRecaudacion: (desde: Date, hasta: Date) =>
+  sumarRecaudacion: (comercioId: number, desde: Date, hasta: Date) =>
     prisma.venta.aggregate({
       where: {
+        comercioId,
         estado: "COMPLETADA",
         fecha: { gte: desde, lte: hasta },
       },

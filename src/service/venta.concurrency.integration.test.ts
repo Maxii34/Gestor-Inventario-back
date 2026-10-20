@@ -55,7 +55,11 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)("integración PG: concurrencia de ventas y p
   let prisma!: Prisma;
   let movimientoRepository!: typeof import("../repositores/movimiento.repository.js")["movimientoRepository"];
   const sufijo = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
-  const creados = { categorias: [] as number[], productos: [] as number[], ventas: [] as number[] };
+  const creados = { categorias: [] as number[], productos: [] as number[], ventas: [] as number[], usuarios: [] as number[], comercios: [] as number[] };
+  // Comercio propio de la suite (nunca hardcodeado: se crea y se limpia acá).
+  let comercioId = 0;
+  // Vendedor de mentira para atribuir ventas: solo importa como FK existente.
+  let vendedorId = 0;
 
   beforeAll(async () => {
     process.env.DATABASE_URL = TEST_URL!;
@@ -70,9 +74,28 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)("integración PG: concurrencia de ventas y p
     await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT 1`;
     });
+    const comercio = await prisma.comercio.create({
+      data: { nombre: `test-comercio-${sufijo}`, slug: `test-comercio-${sufijo}` },
+    });
+    creados.comercios.push(comercio.id);
+    comercioId = comercio.id;
+    const vendedor = await prisma.usuario.create({
+      data: {
+        nombre: "test-vendedor",
+        email: `test-vendedor-${sufijo}@test.com`,
+        password: "hash-no-real",
+        rol: "VENDEDOR",
+        comercioId,
+      },
+    });
+    vendedorId = vendedor.id;
+    creados.usuarios.push(vendedor.id);
   });
 
   afterAll(async () => {
+    // El comercio y vendedor propios se borran al final (los usan todos los tests).
+    await prisma.usuario.deleteMany({ where: { id: { in: creados.usuarios.splice(0) } } });
+    await prisma.comercio.deleteMany({ where: { id: { in: creados.comercios.splice(0) } } });
     await prisma.$disconnect();
   });
 
@@ -105,7 +128,7 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)("integración PG: concurrencia de ventas y p
 
   const crearProducto = async (stock: number, tag: string) => {
     const categoria = await prisma.categoria.create({
-      data: { nombre: `test-cat-${sufijo}-${tag}` },
+      data: { nombre: `test-cat-${sufijo}-${tag}`, comercioId },
     });
     creados.categorias.push(categoria.id);
     const producto = await prisma.producto.create({
@@ -115,6 +138,7 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)("integración PG: concurrencia de ventas y p
         precioVenta: 200,
         stock,
         categoriaId: categoria.id,
+        comercioId,
       },
     });
     creados.productos.push(producto.id);
@@ -135,7 +159,7 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)("integración PG: concurrencia de ventas y p
     const { ventaId } = await ventaService.iniciarVenta({
       metodoPago: "PEDIDO_DISTANCIA",
       detalles: [{ productoId: producto.id, cantidad: 2 }],
-    });
+    }, comercioId, vendedorId);
     creados.ventas.push(ventaId);
     paymentGetMock.mockResolvedValue({ id: "pay-1", external_reference: String(ventaId), status: "approved" });
 
@@ -156,8 +180,8 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)("integración PG: concurrencia de ventas y p
     const armarDto = () => ({ metodoPago: "EFECTIVO" as const, detalles: [{ productoId: producto.id, cantidad: 2 }] });
 
     const [r1, r2] = await Promise.allSettled([
-      ventaService.iniciarVenta(armarDto()),
-      ventaService.iniciarVenta(armarDto()),
+      ventaService.iniciarVenta(armarDto(), comercioId, vendedorId),
+      ventaService.iniciarVenta(armarDto(), comercioId, vendedorId),
     ]);
 
     const ok = [r1, r2].filter((r) => r.status === "fulfilled");
@@ -176,7 +200,7 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)("integración PG: concurrencia de ventas y p
     const { ventaId } = await ventaService.iniciarVenta({
       metodoPago: "PEDIDO_DISTANCIA",
       detalles: [{ productoId: producto.id, cantidad: 2 }],
-    });
+    }, comercioId, vendedorId);
     creados.ventas.push(ventaId);
     paymentGetMock.mockResolvedValue({ id: "pay-9", external_reference: String(ventaId), status: "approved" });
     vi.mocked(movimientoRepository.create).mockRejectedValueOnce(new Error("fallo de BD"));
@@ -193,13 +217,13 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)("integración PG: concurrencia de ventas y p
     const { ventaId } = await ventaService.iniciarVenta({
       metodoPago: "EFECTIVO",
       detalles: [{ productoId: producto.id, cantidad: 2 }],
-    });
+    }, comercioId, vendedorId);
     creados.ventas.push(ventaId);
     expect(await stockDe(producto.id)).toBe(8);
 
     const [r1, r2] = await Promise.allSettled([
-      ventaService.anular(ventaId, "doble clic A"),
-      ventaService.anular(ventaId, "doble clic B"),
+      ventaService.anular(ventaId, comercioId, "doble clic A", vendedorId),
+      ventaService.anular(ventaId, comercioId, "doble clic B", vendedorId),
     ]);
 
     const ok = [r1, r2].filter((r) => r.status === "fulfilled");

@@ -9,6 +9,7 @@ import ventaRoutes from "./routes/venta.routes";
 import usuarioRoutes from "./routes/usuario.routes";
 import { errorHandler } from "./middlewares/errorHandler";
 import estadisticaRoutes from "./routes/estadistica.routes";
+import comercioRoutes from "./routes/comercio.routes";
 
 const app = express();
 
@@ -27,6 +28,7 @@ app.use("/clientes", clienteRoutes);
 app.use("/ventas", ventaRoutes);
 app.use("/usuarios", usuarioRoutes);
 app.use("/estadisticas", estadisticaRoutes);
+app.use("/comercios", comercioRoutes);
 
 // Cualquier error lanzado dentro de un controller async cae acá.
 app.use(errorHandler);

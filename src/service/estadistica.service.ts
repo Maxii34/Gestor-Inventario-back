@@ -7,7 +7,7 @@ export interface RecaudacionQuery {
 }
 
 export const estadisticaService = {
-  getRecaudacion: async ({ desde, hasta }: RecaudacionQuery) => {
+  getRecaudacion: async (comercioId: number, { desde, hasta }: RecaudacionQuery) => {
     const fechaDesde = new Date(desde);
     const fechaHasta = new Date(hasta);
 
@@ -23,7 +23,7 @@ export const estadisticaService = {
       throw new BadRequestError("La fecha 'desde' no puede ser posterior a 'hasta'");
     }
 
-    const resultado = await ventaRepository.sumarRecaudacion(fechaDesde, fechaHasta);
+    const resultado = await ventaRepository.sumarRecaudacion(comercioId, fechaDesde, fechaHasta);
 
     return {
       desde,

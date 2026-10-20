@@ -1,4 +1,5 @@
 import { productoRepository } from "../repositores/producto.repository";
+import { categoriaRepository } from "../repositores/categoria.repository";
 import { NotFoundError, BadRequestError } from "../utils/errors";
 
 interface CrearProductoDTO {
@@ -14,12 +15,12 @@ interface CrearProductoDTO {
 type ActualizarProductoDTO = Partial<CrearProductoDTO>;
 
 export const productoService = {
-  getAll: async (page: number, limit: number) => {
+  getAll: async (comercioId: number, page: number, limit: number) => {
     const skip = (page - 1) * limit;
 
     const [productos, total] = await Promise.all([
-      productoRepository.findAll(skip, limit),
-      productoRepository.count(),
+      productoRepository.findAll(comercioId, skip, limit),
+      productoRepository.count(comercioId),
     ]);
 
     return {
@@ -28,15 +29,15 @@ export const productoService = {
     };
   },
 
-  getById: async (id: number) => {
-    const producto = await productoRepository.findById(id);
+  getById: async (id: number, comercioId: number) => {
+    const producto = await productoRepository.findById(id, comercioId);
     if (!producto) {
       throw new NotFoundError("Producto no encontrado");
     }
     return producto;
   },
 
-  create: (data: CrearProductoDTO) => {
+  create: async (data: CrearProductoDTO, comercioId: number) => {
     if (
       !data.nombre ||
       !data.precioCompra ||
@@ -51,16 +52,32 @@ export const productoService = {
       throw new BadRequestError("El precio de venta debe ser mayor al de compra");
     }
 
+    // La categoría debe existir Y pertenecer al mismo comercio: si es de otro
+    // comercio (o no existe) se responde 404 sin confirmar cuál es el caso.
+    const categoria = await categoriaRepository.findById(data.categoriaId, comercioId);
+    if (!categoria) {
+      throw new NotFoundError("Categoría no encontrada");
+    }
+
     return productoRepository.create({
       ...data,
       activo: true,
+      comercio: { connect: { id: comercioId } },
+      categoria: { connect: { id: data.categoriaId } },
     });
   },
 
-  update: async (id: number, data: ActualizarProductoDTO) => {
-    const productoExistente = await productoRepository.findById(id);
+  update: async (id: number, comercioId: number, data: ActualizarProductoDTO) => {
+    const productoExistente = await productoRepository.findById(id, comercioId);
     if (!productoExistente) {
       throw new NotFoundError("El producto no existe");
+    }
+
+    if (data.categoriaId !== undefined) {
+      const categoria = await categoriaRepository.findById(data.categoriaId, comercioId);
+      if (!categoria) {
+        throw new NotFoundError("Categoría no encontrada");
+      }
     }
 
     const nuevoPrecioCompra =
@@ -71,11 +88,15 @@ export const productoService = {
       throw new BadRequestError("El precio de venta debe ser mayor al de compra");
     }
 
-    return productoRepository.update(id, data);
+    const { categoriaId, ...resto } = data;
+    return productoRepository.update(id, {
+      ...resto,
+      ...(categoriaId !== undefined ? { categoria: { connect: { id: categoriaId } } } : {}),
+    });
   },
 
-  delete: async (id: number) => {
-    const producto = await productoRepository.findById(id);
+  delete: async (id: number, comercioId: number) => {
+    const producto = await productoRepository.findById(id, comercioId);
     if (!producto) {
       throw new NotFoundError("Producto no encontrado");
     }

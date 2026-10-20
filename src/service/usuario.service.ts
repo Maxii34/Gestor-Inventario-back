@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { usuarioRepository } from "../repositores/usuario.repository";
 import { refreshTokenRepository } from "../repositores/refreshToken.repository";
+import { comercioRepository } from "../repositores/comercio.repository";
 import { RolUsuario } from "../generated/prisma/client";
 import { NotFoundError, ConflictError, UnauthorizedError } from "../utils/errors";
 
@@ -14,6 +15,7 @@ export interface CrearUsuarioDTO {
 }
 
 export interface LoginDTO {
+  slug: string;
   email: string;
   password: string;
 }
@@ -29,10 +31,11 @@ const JWT_SECRET = process.env.JWT_SECRET as string;
 const ACCESS_TOKEN_EXPIRES_IN = "1h"; // antes 8h, ahora vida corta porque hay refresh token
 const REFRESH_TOKEN_DIAS = 7;
 
-// Genera el access token (JWT firmado, de vida corta)
-const generarAccessToken = (usuario: { id: number; rol: RolUsuario }) =>
+// Genera el access token (JWT firmado, de vida corta). Incluye el comercio para
+// que ningún endpoint opere sin scope: el comercioId nunca viene del cliente.
+const generarAccessToken = (usuario: { id: number; rol: RolUsuario; comercioId: number }) =>
   jwt.sign(
-    { id: usuario.id, rol: usuario.rol },
+    { id: usuario.id, rol: usuario.rol, comercioId: usuario.comercioId },
     JWT_SECRET,
     { expiresIn: ACCESS_TOKEN_EXPIRES_IN } as jwt.SignOptions
   );
@@ -46,26 +49,27 @@ const generarRefreshToken = async (usuarioId: number) => {
 };
 
 export const usuarioService = {
-  getAll: () => usuarioRepository.findAll(),
+  getAll: (comercioId: number) => usuarioRepository.findAll(comercioId),
 
-  getById: async (id: number) => {
-    const usuario = await usuarioRepository.findById(id);
+  getById: async (id: number, comercioId: number) => {
+    const usuario = await usuarioRepository.findById(id, comercioId);
     if (!usuario) {
       throw new NotFoundError("Usuario no encontrado");
     }
     return usuario;
   },
 
-  create: async (data: CrearUsuarioDTO) => {
-    const existente = await usuarioRepository.findByEmail(data.email);
+  create: async (data: CrearUsuarioDTO, comercioId: number) => {
+    const email = data.email.trim().toLowerCase();
+    const existente = await usuarioRepository.findByEmailAndComercio(comercioId, email);
     if (existente) {
-      throw new ConflictError("Ya existe un usuario con ese email");
+      throw new ConflictError("Ya existe un usuario con ese email en este comercio");
     }
 
     if (data.rol === "ADMIN") {
-      const admins = await usuarioRepository.findByRol("ADMIN");
+      const admins = await usuarioRepository.findByRol(comercioId, "ADMIN");
       if (admins.length >= 1) {
-        throw new ConflictError("Ya existe un administrador en el sistema");
+        throw new ConflictError("Ya existe un administrador en este comercio");
       }
     }
 
@@ -73,9 +77,10 @@ export const usuarioService = {
 
     const usuario = await usuarioRepository.create({
       nombre: data.nombre,
-      email: data.email,
+      email,
       password: passwordHasheada,
       rol: data.rol ?? "VENDEDOR",
+      comercio: { connect: { id: comercioId } },
     });
 
     const { password, ...usuarioSinPassword } = usuario;
@@ -83,8 +88,17 @@ export const usuarioService = {
   },
 
   login: async (data: LoginDTO) => {
-    const usuario = await usuarioRepository.findByEmail(data.email);
-    if (!usuario || !usuario.activo) {
+    // El comercio se resuelve por slug; si no existe o está inactivo, el error
+    // es genérico para no revelar qué slugs/emails existen.
+    const comercio = await comercioRepository.findBySlug(data.slug.trim().toLowerCase());
+    const usuario = comercio
+      ? await usuarioRepository.findByEmailAndComercio(
+          comercio.id,
+          data.email.trim().toLowerCase()
+        )
+      : null;
+
+    if (!comercio || !comercio.activo || !usuario || !usuario.activo) {
       throw new UnauthorizedError("Credenciales inválidas");
     }
 
@@ -97,11 +111,17 @@ export const usuarioService = {
     const refreshToken = await generarRefreshToken(usuario.id);
 
     const { password, ...usuarioSinPassword } = usuario;
-    return { usuario: usuarioSinPassword, accessToken, refreshToken };
+    return {
+      usuario: usuarioSinPassword,
+      comercio: { id: comercio.id, nombre: comercio.nombre, slug: comercio.slug },
+      accessToken,
+      refreshToken,
+    };
   },
 
   // recibe un refresh token válido y devuelve un access token nuevo,
   // rotando (revocando el viejo y emitiendo uno nuevo) por seguridad.
+  // El comercioId del token nuevo se re-deriva del usuario, nunca del pedido.
   refresh: async (refreshTokenRecibido: string) => {
     const registrado = await refreshTokenRepository.findByToken(refreshTokenRecibido);
 
@@ -109,7 +129,7 @@ export const usuarioService = {
       throw new UnauthorizedError("Refresh token inválido o expirado");
     }
 
-    const usuario = await usuarioRepository.findById(registrado.usuarioId);
+    const usuario = await usuarioRepository.findByIdParaRefresh(registrado.usuarioId);
     if (!usuario || !usuario.activo) {
       throw new UnauthorizedError("Usuario no encontrado o inactivo");
     }
@@ -132,32 +152,41 @@ export const usuarioService = {
     // ya no sirva) se cumple igual, y no hace falta filtrar esa información.
   },
 
-  update: async (id: number, data: ActualizarUsuarioDTO) => {
-    const usuario = await usuarioRepository.findById(id);
+  update: async (id: number, comercioId: number, data: ActualizarUsuarioDTO) => {
+    const usuario = await usuarioRepository.findById(id, comercioId);
     if (!usuario) {
       throw new NotFoundError("Usuario no encontrado");
     }
 
     if (data.rol === "ADMIN" && usuario.rol !== "ADMIN") {
-      const admins = await usuarioRepository.findByRol("ADMIN");
+      const admins = await usuarioRepository.findByRol(comercioId, "ADMIN");
       if (admins.length >= 1) {
-        throw new ConflictError("Ya existe un administrador en el sistema");
+        throw new ConflictError("Ya existe un administrador en este comercio");
       }
+    }
+
+    if (data.email) {
+      const email = data.email.trim().toLowerCase();
+      const existente = await usuarioRepository.findByEmailAndComercio(comercioId, email);
+      if (existente && existente.id !== id) {
+        throw new ConflictError("Ya existe un usuario con ese email en este comercio");
+      }
+      data = { ...data, email };
     }
 
     return usuarioRepository.update(id, data);
   },
 
-  delete: async (id: number) => {
-    const usuario = await usuarioRepository.findById(id);
+  delete: async (id: number, comercioId: number) => {
+    const usuario = await usuarioRepository.findById(id, comercioId);
     if (!usuario) {
       throw new NotFoundError("Usuario no encontrado");
     }
 
     if (usuario.rol === "ADMIN") {
-      const admins = await usuarioRepository.findByRol("ADMIN");
+      const admins = await usuarioRepository.findByRol(comercioId, "ADMIN");
       if (admins.length <= 1) {
-        throw new ConflictError("No se puede eliminar el único administrador del sistema");
+        throw new ConflictError("No se puede eliminar el único administrador del comercio");
       }
     }
 

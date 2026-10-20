@@ -1,21 +1,22 @@
 import { Request, Response } from "express";
 import { usuarioService } from "../service/usuario.service";
+import { AuthRequest, requireComercio } from "../middlewares/auth.middleware";
 
 export const usuarioController = {
 
   getAll: async (req: Request, res: Response) => {
-    const usuarios = await usuarioService.getAll();
+    const usuarios = await usuarioService.getAll(requireComercio(req as AuthRequest));
     res.status(200).json({ ok: true, mensaje: "Usuarios obtenidos correctamente", data: usuarios });
   },
 
   getById: async (req: Request, res: Response) => {
     const id = Number(req.params.id);
-    const usuario = await usuarioService.getById(id);
+    const usuario = await usuarioService.getById(id, requireComercio(req as AuthRequest));
     res.status(200).json({ ok: true, mensaje: "Usuario obtenido correctamente", data: usuario });
   },
 
   create: async (req: Request, res: Response) => {
-    const usuario = await usuarioService.create(req.body);
+    const usuario = await usuarioService.create(req.body, requireComercio(req as AuthRequest));
     res.status(201).json({ ok: true, mensaje: "Usuario creado correctamente", data: usuario });
   },
 
@@ -36,13 +37,13 @@ export const usuarioController = {
 
   update: async (req: Request, res: Response) => {
     const id = Number(req.params.id);
-    const usuario = await usuarioService.update(id, req.body);
+    const usuario = await usuarioService.update(id, requireComercio(req as AuthRequest), req.body);
     res.status(200).json({ ok: true, mensaje: "Usuario actualizado correctamente", data: usuario });
   },
 
   delete: async (req: Request, res: Response) => {
     const id = Number(req.params.id);
-    await usuarioService.delete(id);
+    await usuarioService.delete(id, requireComercio(req as AuthRequest));
     res.status(200).json({ ok: true, mensaje: "Usuario eliminado correctamente", data: null });
   },
 

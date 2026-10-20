@@ -8,6 +8,7 @@ export const crearUsuarioSchema = z.object({
 });
 
 export const loginSchema = z.object({
+  slug: z.string().trim().min(1, "El identificador del comercio es obligatorio"),
   email: z.email("El email no es válido"),
   password: z.string().min(1, "La contraseña es obligatoria"),
 });

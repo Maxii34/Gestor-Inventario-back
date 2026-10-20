@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { ventaService } from "../service/venta.service";
+import { AuthRequest, requireComercio } from "../middlewares/auth.middleware";
 import { MpWebhookRequest } from "../middlewares/mercadopagoWebhook";
 
 export const ventaController = {
@@ -8,7 +9,7 @@ export const ventaController = {
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 10;
 
-    const resultado = await ventaService.getAll(page, limit);
+    const resultado = await ventaService.getAll(requireComercio(req as AuthRequest), page, limit);
     res.status(200).json({
       ok: true,
       mensaje: "Ventas obtenidas correctamente",
@@ -19,14 +20,16 @@ export const ventaController = {
 
   getById: async (req: Request, res: Response) => {
     const id = Number(req.params.id);
-    const venta = await ventaService.getById(id);
+    const venta = await ventaService.getById(id, requireComercio(req as AuthRequest));
     res.status(200).json({ ok: true, mensaje: "Venta obtenida correctamente", data: venta });
   },
 
   // Ahora inicia el proceso de pago en vez de completar la venta al instante.
   // Devuelve el link de Mercado Pago para que el frontend redirija al cliente.
+  // El vendedor queda registrado como autor desde el token (nunca del body).
   create: async (req: Request, res: Response) => {
-    const resultado = await ventaService.iniciarVenta(req.body);
+    const auth = req as AuthRequest;
+    const resultado = await ventaService.iniciarVenta(req.body, requireComercio(auth), auth.usuario!.id);
     res.status(201).json({
       ok: true,
       mensaje: "Venta iniciada, redirigir al link de pago",
@@ -52,19 +55,20 @@ export const ventaController = {
 
   update: async (req: Request, res: Response) => {
     const id = Number(req.params.id);
-    const venta = await ventaService.update(id, req.body);
+    const venta = await ventaService.update(id, requireComercio(req as AuthRequest), req.body);
     res.status(200).json({ ok: true, mensaje: "Venta actualizada correctamente", data: venta });
   },
 
   delete: async (req: Request, res: Response) => {
     const id = Number(req.params.id);
-    await ventaService.delete(id);
+    await ventaService.delete(id, requireComercio(req as AuthRequest));
     res.status(200).json({ ok: true, mensaje: "Venta eliminada correctamente", data: null });
   },
 
   anular: async (req: Request, res: Response) => {
     const id = Number(req.params.id);
-    const venta = await ventaService.anular(id, req.body.motivo);
+    const auth = req as AuthRequest;
+    const venta = await ventaService.anular(id, requireComercio(auth), req.body.motivo, auth.usuario!.id);
     res.status(200).json({ ok: true, mensaje: "Venta anulada correctamente", data: venta });
   },
 
