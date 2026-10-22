@@ -18,8 +18,9 @@ export const verificarToken = (req: AuthRequest, res: Response, next: NextFuncti
 
   try {
     const payload = jwt.verify(token, JWT_SECRET) as { id: number; rol: string; comercioId: number };
-    // Tokens legacy sin comercio no pueden operar: fail-closed.
-    if (typeof payload.comercioId !== "number") {
+    // Tokens legacy sin comercio no pueden operar: fail-closed. El id debe ser
+    // un entero positivo para descartar valores manipulados (0, negativos, decimales, strings).
+    if (!Number.isInteger(payload.comercioId) || payload.comercioId <= 0) {
       throw new UnauthorizedError("Token inválido o expirado");
     }
     req.usuario = payload;
@@ -41,7 +42,7 @@ export const esAdmin = (req: AuthRequest, res: Response, next: NextFunction) => 
 // de leer comercioId del body/query/params (R-TEN-02).
 export const requireComercio = (req: AuthRequest): number => {
   const comercioId = req.usuario?.comercioId;
-  if (typeof comercioId !== "number") {
+  if (comercioId === undefined || !Number.isInteger(comercioId) || comercioId <= 0) {
     throw new UnauthorizedError("Token inválido o expirado");
   }
   return comercioId;
