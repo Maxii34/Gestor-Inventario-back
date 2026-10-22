@@ -89,7 +89,7 @@ export const productoService = {
     }
 
     const { categoriaId, ...resto } = data;
-    return productoRepository.update(id, {
+    return productoRepository.update(id, comercioId, {
       ...resto,
       ...(categoriaId !== undefined ? { categoria: { connect: { id: categoriaId } } } : {}),
     });
@@ -100,6 +100,6 @@ export const productoService = {
     if (!producto) {
       throw new NotFoundError("Producto no encontrado");
     }
-    return productoRepository.delete(id);
+    return productoRepository.delete(id, comercioId);
   },
 };

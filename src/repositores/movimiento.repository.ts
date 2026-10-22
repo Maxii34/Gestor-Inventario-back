@@ -24,9 +24,9 @@ export const movimientoRepository = {
   create: (data: Prisma.MovimientoStockCreateInput, tx?: PrismaTx) =>
     (tx ?? prisma).movimientoStock.create({ data }),
 
-  update: (id: number, data: Prisma.MovimientoStockUpdateInput) =>
-    prisma.movimientoStock.update({ where: { id }, data }),
+  update: (id: number, comercioId: number, data: Prisma.MovimientoStockUpdateInput) =>
+    prisma.movimientoStock.update({ where: { id, comercioId }, data }),
 
-  delete: (id: number, tx?: PrismaTx) =>
-    (tx ?? prisma).movimientoStock.delete({ where: { id } }),
+  delete: (id: number, comercioId: number, tx?: PrismaTx) =>
+    (tx ?? prisma).movimientoStock.delete({ where: { id, comercioId } }),
 };

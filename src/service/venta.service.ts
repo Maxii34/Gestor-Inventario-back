@@ -212,7 +212,7 @@ export const ventaService = {
       },
     });
 
-    await ventaRepository.update(venta.id, {
+    await ventaRepository.update(venta.id, comercioId, {
       mercadoPagoPreferenceId: preferencia.id,
     });
 
@@ -305,7 +305,7 @@ export const ventaService = {
     }
 
     if (payment.status === "rejected") {
-      return ventaRepository.update(venta.id, {
+      return ventaRepository.update(venta.id, comercioId, {
         estado: "RECHAZADA",
         mercadoPagoPaymentId: String(payment.id),
       });
@@ -353,7 +353,7 @@ export const ventaService = {
       );
     }
 
-    return ventaRepository.update(id, data);
+    return ventaRepository.update(id, comercioId, data);
   },
 
   // Anulación explícita con motivo obligatorio.
@@ -380,7 +380,7 @@ export const ventaService = {
     }
 
     if (venta.estado === "PENDIENTE") {
-      return ventaRepository.update(id, {
+      return ventaRepository.update(id, comercioId, {
         estado: "ANULADA",
         motivoAnulacion: motivoLimpio,
         fechaAnulacion: new Date(),
@@ -432,6 +432,7 @@ export const ventaService = {
         // valor realmente escrito y `stockAnterior` se deriva de él, sin fotos previas.
         const actualizado = await productoRepository.update(
           repo.productoId,
+          comercioId,
           { stock: { increment: repo.cantidad } },
           tx
         );

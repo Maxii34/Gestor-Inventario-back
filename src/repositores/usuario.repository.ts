@@ -50,9 +50,9 @@ export const usuarioRepository = {
   create: (data: Prisma.UsuarioCreateInput, tx?: PrismaTx) =>
     (tx ?? prisma).usuario.create({ data }),
 
-  update: (id: number, data: Prisma.UsuarioUpdateInput) =>
-    prisma.usuario.update({ where: { id }, data }),
+  update: (id: number, comercioId: number, data: Prisma.UsuarioUpdateInput) =>
+    prisma.usuario.update({ where: { id, comercioId }, data }),
 
-  delete: (id: number) =>
-    prisma.usuario.update({ where: { id }, data: { activo: false } }),
+  delete: (id: number, comercioId: number) =>
+    prisma.usuario.update({ where: { id, comercioId }, data: { activo: false } }),
 };

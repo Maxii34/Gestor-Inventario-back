@@ -31,7 +31,7 @@ export const categoriaService = {
     if (!categoria) {
       throw new NotFoundError("Categoría no encontrada");
     }
-    return categoriaRepository.update(id, data);
+    return categoriaRepository.update(id, comercioId, data);
   },
 
   delete: async (id: number, comercioId: number) => {
@@ -39,6 +39,6 @@ export const categoriaService = {
     if (!categoria) {
       throw new NotFoundError("Categoría no encontrada");
     }
-    return categoriaRepository.delete(id);
+    return categoriaRepository.delete(id, comercioId);
   },
 };

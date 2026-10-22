@@ -7,8 +7,11 @@ export const refreshTokenRepository = {
   findByToken: (token: string) =>
     prisma.refreshToken.findUnique({ where: { token } }),
 
-  revocar: (id: number) =>
-    prisma.refreshToken.update({ where: { id }, data: { revocado: true } }),
+  revocar: (id: number, usuarioId: number) =>
+    prisma.refreshToken.updateMany({
+      where: { id, usuarioId },
+      data: { revocado: true },
+    }),
 
   revocarTodosDeUsuario: (usuarioId: number) =>
     prisma.refreshToken.updateMany({

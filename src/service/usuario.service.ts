@@ -135,7 +135,7 @@ export const usuarioService = {
     }
 
     // Rotación: se invalida el token usado y se emite uno nuevo
-    await refreshTokenRepository.revocar(registrado.id);
+    await refreshTokenRepository.revocar(registrado.id, registrado.usuarioId);
     const nuevoRefreshToken = await generarRefreshToken(usuario.id);
     const nuevoAccessToken = generarAccessToken(usuario);
 
@@ -146,7 +146,7 @@ export const usuarioService = {
   logout: async (refreshTokenRecibido: string) => {
     const registrado = await refreshTokenRepository.findByToken(refreshTokenRecibido);
     if (registrado) {
-      await refreshTokenRepository.revocar(registrado.id);
+      await refreshTokenRepository.revocar(registrado.id, registrado.usuarioId);
     }
     // No lanzamos error si no se encuentra: el efecto deseado (que ese token
     // ya no sirva) se cumple igual, y no hace falta filtrar esa información.
@@ -174,7 +174,7 @@ export const usuarioService = {
       data = { ...data, email };
     }
 
-    return usuarioRepository.update(id, data);
+    return usuarioRepository.update(id, comercioId, data);
   },
 
   delete: async (id: number, comercioId: number) => {
@@ -192,6 +192,6 @@ export const usuarioService = {
 
     // Al desactivar un usuario, además revocamos todas sus sesiones activas
     await refreshTokenRepository.revocarTodosDeUsuario(id);
-    return usuarioRepository.delete(id);
+    return usuarioRepository.delete(id, comercioId);
   },
 };

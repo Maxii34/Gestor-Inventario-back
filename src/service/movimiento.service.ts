@@ -60,6 +60,7 @@ export const movimientoService = {
         // `increment` + registro devuelto: sin fotos previas ni updates perdidos.
         const actualizado = await productoRepository.update(
           data.productoId,
+          comercioId,
           { stock: { increment: data.cantidad } },
           tx
         );
@@ -85,6 +86,7 @@ export const movimientoService = {
         // AJUSTE fija valor absoluto por definición; el nuevo es el escrito.
         const actualizado = await productoRepository.update(
           data.productoId,
+          comercioId,
           { stock: data.cantidad },
           tx
         );
@@ -117,7 +119,7 @@ export const movimientoService = {
     if (!movimiento) {
       throw new NotFoundError("Movimiento no encontrado");
     }
-    return movimientoRepository.update(id, data);
+    return movimientoRepository.update(id, comercioId, data);
   },
 
   delete: async (id: number, comercioId: number) => {
@@ -125,6 +127,6 @@ export const movimientoService = {
     if (!movimiento) {
       throw new NotFoundError("Movimiento no encontrado");
     }
-    return movimientoRepository.delete(id);
+    return movimientoRepository.delete(id, comercioId);
   },
 };

@@ -16,8 +16,9 @@ export const categoriaRepository = {
   create: (data: Prisma.CategoriaCreateInput, tx?: PrismaTx) =>
     (tx ?? prisma).categoria.create({ data }),
 
-  update: (id: number, data: Prisma.CategoriaUpdateInput) =>
-    prisma.categoria.update({ where: { id }, data }),
+  update: (id: number, comercioId: number, data: Prisma.CategoriaUpdateInput) =>
+    prisma.categoria.update({ where: { id, comercioId }, data }),
 
-  delete: (id: number) => prisma.categoria.delete({ where: { id } }),
+  delete: (id: number, comercioId: number) =>
+    prisma.categoria.delete({ where: { id, comercioId } }),
 };

@@ -70,6 +70,7 @@ describe("movimientoService.create", () => {
     // Incremento atómico 10 + 5 = 15, valores del registro escrito
     expect(productoRepository.update).toHaveBeenCalledWith(
       1,
+      1,
       { stock: { increment: 5 } },
       expect.anything() // el "tx" falso que le pasamos
     );
@@ -109,6 +110,7 @@ describe("movimientoService.create", () => {
     await movimientoService.create({ tipo: "AJUSTE", cantidad: 50, productoId: 1 }, 1);
 
     expect(productoRepository.update).toHaveBeenCalledWith(
+      1,
       1,
       { stock: 50 },
       expect.anything()
@@ -163,7 +165,7 @@ describe("movimientoService.update", () => {
     const resultado = await movimientoService.update(1, 1, { motivo: "nuevo" });
 
     expect(resultado).toEqual(movimientoActualizado);
-    expect(movimientoRepository.update).toHaveBeenCalledWith(1, { motivo: "nuevo" });
+    expect(movimientoRepository.update).toHaveBeenCalledWith(1, 1, { motivo: "nuevo" });
   });
 });
 
@@ -185,6 +187,6 @@ describe("movimientoService.delete", () => {
 
     await movimientoService.delete(1, 1);
 
-    expect(movimientoRepository.delete).toHaveBeenCalledWith(1);
+    expect(movimientoRepository.delete).toHaveBeenCalledWith(1, 1);
   });
 });

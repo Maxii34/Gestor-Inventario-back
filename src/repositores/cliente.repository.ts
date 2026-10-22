@@ -28,9 +28,9 @@ export const clienteRepository = {
   create: (data: Prisma.ClienteCreateInput, tx?: PrismaTx) =>
     (tx ?? prisma).cliente.create({ data }),
 
-  update: (id: number, data: Prisma.ClienteUpdateInput) =>
-    prisma.cliente.update({ where: { id }, data }),
+  update: (id: number, comercioId: number, data: Prisma.ClienteUpdateInput) =>
+    prisma.cliente.update({ where: { id, comercioId }, data }),
 
-  delete: (id: number, tx?: PrismaTx) =>
-    (tx ?? prisma).cliente.update({ where: { id }, data: { activo: false } }),
+  delete: (id: number, comercioId: number, tx?: PrismaTx) =>
+    (tx ?? prisma).cliente.update({ where: { id, comercioId }, data: { activo: false } }),
 };

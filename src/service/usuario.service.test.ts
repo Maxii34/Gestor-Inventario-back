@@ -200,7 +200,7 @@ describe("usuarioService.refresh", () => {
 
     const resultado = await usuarioService.refresh("abc");
 
-    expect(refreshTokenRepository.revocar).toHaveBeenCalledWith(1); // se revocó el viejo
+    expect(refreshTokenRepository.revocar).toHaveBeenCalledWith(1, 1); // se revocó el viejo
     expect(vi.mocked(jwt.sign).mock.calls[0][0]).toEqual(
       expect.objectContaining({ comercioId: 1 })
     );
@@ -237,7 +237,7 @@ describe("usuarioService.delete", () => {
 
     await usuarioService.delete(1, 1);
 
-    expect(usuarioRepository.delete).toHaveBeenCalledWith(1);
+    expect(usuarioRepository.delete).toHaveBeenCalledWith(1, 1);
   });
 
   it("revoca todas las sesiones activas del usuario al eliminarlo", async () => {

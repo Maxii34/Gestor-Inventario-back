@@ -64,7 +64,7 @@ export const clienteService = {
     if (!cliente || !cliente.activo) {
       throw new NotFoundError("Cliente no encontrado");
     }
-    return clienteRepository.update(id, {
+    return clienteRepository.update(id, comercioId, {
       ...data,
       email: data.email?.trim().toLowerCase(),
       dni: data.dni?.trim(),
@@ -76,6 +76,6 @@ export const clienteService = {
     if (!cliente || !cliente.activo) {
       throw new NotFoundError("Cliente no encontrado");
     }
-    return clienteRepository.delete(id);
+    return clienteRepository.delete(id, comercioId);
   },
 };

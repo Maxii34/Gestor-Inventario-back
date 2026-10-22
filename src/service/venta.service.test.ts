@@ -122,7 +122,7 @@ describe("ventaService.iniciarVenta - PEDIDO_DISTANCIA (Mercado Pago)", () => {
     );
 
     // Se guarda el preferenceId en la venta para trazabilidad
-    expect(ventaRepository.update).toHaveBeenCalledWith(42, {
+    expect(ventaRepository.update).toHaveBeenCalledWith(42, 1, {
       mercadoPagoPreferenceId: "pref-abc",
     });
 
@@ -238,7 +238,7 @@ describe("ventaService.confirmarPago", () => {
     await ventaService.confirmarPago("pay-2");
 
     expect(productoRepository.update).not.toHaveBeenCalled();
-    expect(ventaRepository.update).toHaveBeenCalledWith(42,{
+    expect(ventaRepository.update).toHaveBeenCalledWith(42, 1, {
       estado: "RECHAZADA",
       mercadoPagoPaymentId: "pay-2",
     });
@@ -374,7 +374,7 @@ describe("ventaService.update - máquina de estados", () => {
     vi.mocked(ventaRepository.update).mockResolvedValue({ id: 1 } as any);
 
     await ventaService.update(1, 1, { clienteId: 2 });
-    expect(ventaRepository.update).toHaveBeenCalledWith(1, { clienteId: 2 });
+    expect(ventaRepository.update).toHaveBeenCalledWith(1, 1, { clienteId: 2 });
   });
 });
 
@@ -412,7 +412,7 @@ describe("ventaService.anular", () => {
     vi.mocked(ventaRepository.update).mockResolvedValue({ id: 1, estado: "ANULADA" } as any);
 
     const resultado = await ventaService.anular(1, 1, "el cliente canceló", 7);
-    expect(ventaRepository.update).toHaveBeenCalledWith(1, expect.objectContaining({
+    expect(ventaRepository.update).toHaveBeenCalledWith(1, 1, expect.objectContaining({
       estado: "ANULADA",
       motivoAnulacion: "el cliente canceló",
       anuladoPor: { connect: { id: 7 } },
@@ -443,6 +443,7 @@ describe("ventaService.anular", () => {
       expect.anything()
     );
     expect(productoRepository.update).toHaveBeenCalledWith(
+      1,
       1,
       { stock: { increment: 2 } },
       expect.anything()
