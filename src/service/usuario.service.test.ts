@@ -209,6 +209,34 @@ describe("usuarioService.refresh", () => {
   });
 });
 
+describe("usuarioService.update", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("revoca todas las sesiones cuando activo pasa a false", async () => {
+    const vendedor = { ...usuarioFalso, id: 3, rol: "VENDEDOR" as const };
+    vi.mocked(usuarioRepository.findById).mockResolvedValue(vendedor);
+    vi.mocked(refreshTokenRepository.revocarTodosDeUsuario).mockResolvedValue({ count: 2 } as any);
+    vi.mocked(usuarioRepository.update).mockResolvedValue({ ...vendedor, activo: false });
+
+    await usuarioService.update(3, 1, { activo: false });
+
+    expect(refreshTokenRepository.revocarTodosDeUsuario).toHaveBeenCalledWith(3);
+    expect(usuarioRepository.update).toHaveBeenCalledWith(3, 1, { activo: false });
+  });
+
+  it("no revoca sesiones si el usuario sigue activo", async () => {
+    const vendedor = { ...usuarioFalso, id: 3, rol: "VENDEDOR" as const };
+    vi.mocked(usuarioRepository.findById).mockResolvedValue(vendedor);
+    vi.mocked(usuarioRepository.update).mockResolvedValue({ ...vendedor, nombre: "Nuevo" });
+
+    await usuarioService.update(3, 1, { nombre: "Nuevo" });
+
+    expect(refreshTokenRepository.revocarTodosDeUsuario).not.toHaveBeenCalled();
+  });
+});
+
 describe("usuarioService.delete", () => {
   beforeEach(() => {
     vi.clearAllMocks();

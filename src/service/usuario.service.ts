@@ -174,6 +174,12 @@ export const usuarioService = {
       data = { ...data, email };
     }
 
+    // Desactivar es equivalente a dar de baja: se revocan todas las sesiones
+    // activas para que no pueda seguir operando con sus tokens vigentes.
+    if (data.activo === false) {
+      await refreshTokenRepository.revocarTodosDeUsuario(id);
+    }
+
     return usuarioRepository.update(id, comercioId, data);
   },
 
