@@ -42,7 +42,7 @@ export const productoService = {
       !data.nombre ||
       !data.precioCompra ||
       !data.precioVenta ||
-      !data.stock
+      data.stock === undefined
     ) {
       throw new BadRequestError(
         "Nombre, precio de compra, precio de venta y stock son obligatorios",
