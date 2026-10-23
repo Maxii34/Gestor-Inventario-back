@@ -49,32 +49,46 @@ export const productoService = {
       );
     }
     if (data.precioVenta <= data.precioCompra) {
-      throw new BadRequestError("El precio de venta debe ser mayor al de compra");
+      throw new BadRequestError(
+        "El precio de venta debe ser mayor al de compra",
+      );
     }
 
     // La categoría debe existir Y pertenecer al mismo comercio: si es de otro
     // comercio (o no existe) se responde 404 sin confirmar cuál es el caso.
-    const categoria = await categoriaRepository.findById(data.categoriaId, comercioId);
+    const categoria = await categoriaRepository.findById(
+      data.categoriaId,
+      comercioId,
+    );
     if (!categoria) {
       throw new NotFoundError("Categoría no encontrada");
     }
 
+    const { categoriaId, ...resto } = data;
+
     return productoRepository.create({
-      ...data,
+      ...resto,
       activo: true,
       comercio: { connect: { id: comercioId } },
-      categoria: { connect: { id: data.categoriaId } },
+      categoria: { connect: { id: categoriaId } },
     });
   },
 
-  update: async (id: number, comercioId: number, data: ActualizarProductoDTO) => {
+  update: async (
+    id: number,
+    comercioId: number,
+    data: ActualizarProductoDTO,
+  ) => {
     const productoExistente = await productoRepository.findById(id, comercioId);
     if (!productoExistente) {
       throw new NotFoundError("El producto no existe");
     }
 
     if (data.categoriaId !== undefined) {
-      const categoria = await categoriaRepository.findById(data.categoriaId, comercioId);
+      const categoria = await categoriaRepository.findById(
+        data.categoriaId,
+        comercioId,
+      );
       if (!categoria) {
         throw new NotFoundError("Categoría no encontrada");
       }
@@ -85,13 +99,17 @@ export const productoService = {
     const nuevoPrecioVenta = data.precioVenta ?? productoExistente.precioVenta;
 
     if (Number(nuevoPrecioVenta) <= Number(nuevoPrecioCompra)) {
-      throw new BadRequestError("El precio de venta debe ser mayor al de compra");
+      throw new BadRequestError(
+        "El precio de venta debe ser mayor al de compra",
+      );
     }
 
     const { categoriaId, ...resto } = data;
     return productoRepository.update(id, comercioId, {
       ...resto,
-      ...(categoriaId !== undefined ? { categoria: { connect: { id: categoriaId } } } : {}),
+      ...(categoriaId !== undefined
+        ? { categoria: { connect: { id: categoriaId } } }
+        : {}),
     });
   },
 
