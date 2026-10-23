@@ -16,7 +16,9 @@ export const proveedorRepository = {
     prisma.proveedor.count({ where: { comercioId, activo: true } }),
 
   findById: (id: number, comercioId: number, tx?: PrismaTx) =>
-    (tx ?? prisma).proveedor.findFirst({ where: { id, comercioId, activo: true } }),
+    (tx ?? prisma).proveedor.findFirst({
+      where: { id, comercioId, activo: true },
+    }),
 
   create: (data: Prisma.ProveedorCreateInput, tx?: PrismaTx) =>
     (tx ?? prisma).proveedor.create({ data }),
@@ -25,7 +27,7 @@ export const proveedorRepository = {
     id: number,
     comercioId: number,
     data: Prisma.ProveedorUpdateInput,
-    tx?: PrismaTx
+    tx?: PrismaTx,
   ) => (tx ?? prisma).proveedor.update({ where: { id, comercioId }, data }),
 
   // Soft delete: no se borra la fila, se marca inactiva.
@@ -34,4 +36,9 @@ export const proveedorRepository = {
       where: { id, comercioId },
       data: { activo: false },
     }),
+
+  // No filtra por `activo` a propósito: el índice único (comercioId, nombre)
+  // también cuenta a los proveedores dados de baja.
+  findByNombre: (nombre: string, comercioId: number) =>
+    prisma.proveedor.findFirst({ where: { nombre, comercioId } }),
 };

@@ -10,6 +10,7 @@ import usuarioRoutes from "./routes/usuario.routes";
 import { errorHandler } from "./middlewares/errorHandler";
 import estadisticaRoutes from "./routes/estadistica.routes";
 import comercioRoutes from "./routes/comercio.routes";
+import proveedorRoutes from "./routes/proveedor.routes";
 
 const app = express();
 
@@ -23,6 +24,7 @@ app.get("/", (req, res) => {
 
 app.use("/categorias", categoriaRoutes);
 app.use("/productos", productoRoutes);
+app.use("/proveedores", proveedorRoutes)
 app.use("/movimientos", movimientoRoutes);
 app.use("/clientes", clienteRoutes);
 app.use("/ventas", ventaRoutes);
