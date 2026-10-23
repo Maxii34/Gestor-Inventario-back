@@ -14,35 +14,36 @@ datasource db {
 }
 
 model Comercio {
-  id          Int        @id @default(autoincrement())
-  nombre      String
-  slug        String     @unique
-  activo      Boolean    @default(true)
+  id     Int     @id @default(autoincrement())
+  nombre String
+  slug   String  @unique
+  activo Boolean @default(true)
 
   categorias  Categoria[]
   productos   Producto[]
   movimientos MovimientoStock[]
   clientes    Cliente[]
+  proveedores Proveedor[]
   ventas      Venta[]
   detalles    DetalleVenta[]
   usuarios    Usuario[]
 
-  fechaCreacion DateTime @default(now())
+  fechaCreacion      DateTime @default(now())
   fechaActualizacion DateTime @updatedAt
 }
 
 model Categoria {
-  id          Int        @id @default(autoincrement())
+  id          Int     @id @default(autoincrement())
   nombre      String
   descripcion String?
-  activo      Boolean    @default(true)
+  activo      Boolean @default(true)
 
-  comercioId  Int
-  comercio    Comercio   @relation(fields: [comercioId], references: [id], onDelete: Restrict)
+  comercioId Int
+  comercio   Comercio @relation(fields: [comercioId], references: [id], onDelete: Restrict)
 
-  productos   Producto[]
+  productos Producto[]
 
-  fechaCreacion DateTime @default(now())
+  fechaCreacion      DateTime @default(now())
   fechaActualizacion DateTime @updatedAt
 
   @@unique([id, comercioId])
@@ -51,25 +52,25 @@ model Categoria {
 }
 
 model Producto {
-  id          Int        @id @default(autoincrement())
-  nombre      String
-  descripcion String?
-  precioCompra Decimal    @db.Decimal(10, 2)
-  precioVenta  Decimal    @db.Decimal(10, 2)
-  stock       Int        @default(0)
-  stockMinimo Int        @default(0)
-  activo      Boolean    @default(true)
+  id           Int     @id @default(autoincrement())
+  nombre       String
+  descripcion  String?
+  precioCompra Decimal @db.Decimal(10, 2)
+  precioVenta  Decimal @db.Decimal(10, 2)
+  stock        Int     @default(0)
+  stockMinimo  Int     @default(0)
+  activo       Boolean @default(true)
 
-  comercioId  Int
-  comercio    Comercio   @relation(fields: [comercioId], references: [id], onDelete: Restrict)
+  comercioId Int
+  comercio   Comercio @relation(fields: [comercioId], references: [id], onDelete: Restrict)
 
   categoriaId Int
-  categoria   Categoria  @relation(fields: [categoriaId, comercioId], references: [id, comercioId], onDelete: Restrict)
+  categoria   Categoria @relation(fields: [categoriaId, comercioId], references: [id, comercioId], onDelete: Restrict)
 
   movimientosStock MovimientoStock[]
   detallesVenta    DetalleVenta[]
 
-  fechaCreacion    DateTime @default(now())
+  fechaCreacion      DateTime @default(now())
   fechaActualizacion DateTime @updatedAt
 
   @@unique([id, comercioId])
@@ -77,43 +78,61 @@ model Producto {
   @@index([comercioId, nombre])
 }
 
+model Proveedor {
+  id       Int     @id @default(autoincrement())
+  nombre   String
+  telefono String?
+  email    String?
+  activo   Boolean @default(true)
+
+  comercioId Int
+  comercio   Comercio @relation(fields: [comercioId], references: [id], onDelete: Restrict)
+
+  fechaCreacion      DateTime @default(now())
+  fechaActualizacion DateTime @updatedAt
+
+  @@unique([id, comercioId])
+  @@unique([comercioId, nombre])
+  @@index([comercioId])
+}
+
 model MovimientoStock {
-  id          Int      @id @default(autoincrement())
-  tipo        TipoMovimiento
-  cantidad    Int
+  id            Int            @id @default(autoincrement())
+  tipo          TipoMovimiento
+  cantidad      Int
   stockAnterior Int
   stockNuevo    Int
-  motivo      String?
+  motivo        String?
 
-  comercioId  Int
-  comercio    Comercio @relation(fields: [comercioId], references: [id], onDelete: Restrict)
+  comercioId Int
+  comercio   Comercio @relation(fields: [comercioId], references: [id], onDelete: Restrict)
 
-  productoId  Int
-  producto    Producto @relation(fields: [productoId, comercioId], references: [id, comercioId], onDelete: Restrict)
+  productoId Int
+  producto   Producto @relation(fields: [productoId, comercioId], references: [id, comercioId], onDelete: Restrict)
 
   responsableId Int?
   responsable   Usuario? @relation("MovimientoResponsable", fields: [responsableId, comercioId], references: [id, comercioId], onDelete: Restrict)
 
-  fecha       DateTime @default(now())
+  fecha DateTime @default(now())
 
   @@index([comercioId, productoId, fecha])
 }
 
 model Cliente {
-  id          Int      @id @default(autoincrement())
-  nombre      String
-  apellido    String
-  dni         String?
-  telefono    String?
-  email       String?
-  activo      Boolean  @default(true)
+  id       Int     @id @default(autoincrement())
+  nombre   String
+  apellido String
+  dni      String?
+  telefono String?
+  email    String?
+  activo   Boolean @default(true)
 
-  comercioId  Int
-  comercio    Comercio @relation(fields: [comercioId], references: [id], onDelete: Restrict)
+  comercioId Int
+  comercio   Comercio @relation(fields: [comercioId], references: [id], onDelete: Restrict)
 
-  ventas      Venta[]
+  ventas Venta[]
 
-  fechaCreacion DateTime @default(now())
+  fechaCreacion      DateTime @default(now())
   fechaActualizacion DateTime @updatedAt
 
   @@unique([id, comercioId])
@@ -123,33 +142,33 @@ model Cliente {
 }
 
 model Venta {
-  id              Int          @id @default(autoincrement())
-  total           Decimal      @db.Decimal(10, 2)
-  metodoPago      MetodoPago
-  estado          EstadoVenta  @default(PENDIENTE)
+  id         Int         @id @default(autoincrement())
+  total      Decimal     @db.Decimal(10, 2)
+  metodoPago MetodoPago
+  estado     EstadoVenta @default(PENDIENTE)
 
   mercadoPagoPreferenceId String?
-  mercadoPagoPaymentId    String?  @unique
+  mercadoPagoPaymentId    String? @unique
 
   motivoAnulacion String?
   fechaAnulacion  DateTime?
 
-  comercioId      Int
-  comercio        Comercio     @relation(fields: [comercioId], references: [id], onDelete: Restrict)
+  comercioId Int
+  comercio   Comercio @relation(fields: [comercioId], references: [id], onDelete: Restrict)
 
-  vendedorId      Int?
-  vendedor        Usuario?     @relation("VentaVendedor", fields: [vendedorId, comercioId], references: [id, comercioId], onDelete: Restrict)
+  vendedorId Int?
+  vendedor   Usuario? @relation("VentaVendedor", fields: [vendedorId, comercioId], references: [id, comercioId], onDelete: Restrict)
 
-  anuladoPorId    Int?
-  anuladoPor      Usuario?     @relation("VentaAnuladaPor", fields: [anuladoPorId, comercioId], references: [id, comercioId], onDelete: Restrict)
+  anuladoPorId Int?
+  anuladoPor   Usuario? @relation("VentaAnuladaPor", fields: [anuladoPorId, comercioId], references: [id, comercioId], onDelete: Restrict)
 
-  clienteId       Int?
-  cliente         Cliente?     @relation(fields: [clienteId, comercioId], references: [id, comercioId], onDelete: Restrict)
+  clienteId Int?
+  cliente   Cliente? @relation(fields: [clienteId, comercioId], references: [id, comercioId], onDelete: Restrict)
 
-  detalles        DetalleVenta[]
+  detalles DetalleVenta[]
 
-  fecha           DateTime     @default(now())
-  fechaActualizacion DateTime  @updatedAt
+  fecha              DateTime @default(now())
+  fechaActualizacion DateTime @updatedAt
 
   @@unique([id, comercioId])
   @@index([comercioId, estado, fecha])
@@ -157,44 +176,44 @@ model Venta {
 }
 
 model DetalleVenta {
-  id          Int      @id @default(autoincrement())
-  cantidad    Int
+  id             Int     @id @default(autoincrement())
+  cantidad       Int
   precioUnitario Decimal @db.Decimal(10, 2)
-  subtotal    Decimal  @db.Decimal(10, 2)
+  subtotal       Decimal @db.Decimal(10, 2)
 
   // Desnormalizado a propósito: es la única forma de que la base de datos
   // garantice que el producto del detalle pertenece al comercio de la venta.
   // No puede divergir porque ambas FK compuestas fijan el mismo comercioId.
-  comercioId  Int
-  comercio    Comercio @relation(fields: [comercioId], references: [id], onDelete: Restrict)
+  comercioId Int
+  comercio   Comercio @relation(fields: [comercioId], references: [id], onDelete: Restrict)
 
-  ventaId     Int
-  venta       Venta    @relation(fields: [ventaId, comercioId], references: [id, comercioId], onDelete: Cascade)
+  ventaId Int
+  venta   Venta @relation(fields: [ventaId, comercioId], references: [id, comercioId], onDelete: Cascade)
 
-  productoId  Int
-  producto    Producto @relation(fields: [productoId, comercioId], references: [id, comercioId], onDelete: Restrict)
+  productoId Int
+  producto   Producto @relation(fields: [productoId, comercioId], references: [id, comercioId], onDelete: Restrict)
 
   @@index([ventaId, productoId])
 }
 
 model Usuario {
-  id        Int      @id @default(autoincrement())
-  nombre    String
-  email     String
-  password  String
-  rol       RolUsuario @default(VENDEDOR)
-  activo    Boolean  @default(true)
+  id       Int        @id @default(autoincrement())
+  nombre   String
+  email    String
+  password String
+  rol      RolUsuario @default(VENDEDOR)
+  activo   Boolean    @default(true)
 
-  comercioId  Int
-  comercio    Comercio @relation(fields: [comercioId], references: [id], onDelete: Restrict)
+  comercioId Int
+  comercio   Comercio @relation(fields: [comercioId], references: [id], onDelete: Restrict)
 
-  fechaCreacion DateTime @default(now())
+  fechaCreacion      DateTime @default(now())
   fechaActualizacion DateTime @updatedAt
 
-  refreshTokens RefreshToken[]
-  ventasRealizadas      Venta[]           @relation("VentaVendedor")
-  movimientosGenerados  MovimientoStock[] @relation("MovimientoResponsable")
-  ventasAnuladas        Venta[]           @relation("VentaAnuladaPor")
+  refreshTokens        RefreshToken[]
+  ventasRealizadas     Venta[]           @relation("VentaVendedor")
+  movimientosGenerados MovimientoStock[] @relation("MovimientoResponsable")
+  ventasAnuladas       Venta[]           @relation("VentaAnuladaPor")
 
   @@unique([id, comercioId])
   @@unique([comercioId, email])
@@ -202,12 +221,12 @@ model Usuario {
 }
 
 model RefreshToken {
-  id          Int      @id @default(autoincrement())
-  token       String   @unique
-  usuarioId   Int
-  usuario     Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  expiraEn    DateTime
-  revocado    Boolean  @default(false)
+  id            Int      @id @default(autoincrement())
+  token         String   @unique
+  usuarioId     Int
+  usuario       Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  expiraEn      DateTime
+  revocado      Boolean  @default(false)
   fechaCreacion DateTime @default(now())
 
   @@index([usuarioId])
