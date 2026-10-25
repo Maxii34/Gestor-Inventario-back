@@ -2,6 +2,7 @@ import { Router } from "express";
 import { usuarioController } from "../controllers/usuario.controller";
 import { validate } from "../middlewares/validate";
 import { verificarToken, esAdmin } from "../middlewares/auth.middleware";
+import { loginLimiter } from "../middlewares/rateLimit";
 import {
   crearUsuarioSchema,
   loginSchema,
@@ -12,7 +13,7 @@ import {
 const router = Router();
 
 // Público
-router.post("/login", validate(loginSchema), usuarioController.login);
+router.post("/login", loginLimiter, validate(loginSchema), usuarioController.login);
 router.post("/refresh", validate(refreshTokenSchema), usuarioController.refresh);
 router.post("/logout", validate(refreshTokenSchema), usuarioController.logout);
 
