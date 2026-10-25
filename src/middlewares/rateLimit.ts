@@ -10,8 +10,8 @@ const mensaje = (texto: string) => ({ ok: false, mensaje: texto });
 // Login: solo cuenta los intentos FALLIDOS. Frena la fuerza bruta de
 // contraseñas sin molestar a quien entra bien.
 export const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  limit: 10,
+  windowMs: 5 * 60 * 1000, // 15 minutos -- ahora 5 minutos
+  limit: 5, // 5 intentos
   skipSuccessfulRequests: true,
   standardHeaders: true,
   legacyHeaders: false,
@@ -22,7 +22,7 @@ export const loginLimiter = rateLimit({
 // calcula bcrypt), así que es el más caro de abusar.
 export const registroLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hora
-  limit: 5,
+  limit: 5, // 5 registros
   standardHeaders: true,
   legacyHeaders: false,
   message: mensaje("Demasiados registros desde esta dirección. Probá de nuevo más tarde."),
