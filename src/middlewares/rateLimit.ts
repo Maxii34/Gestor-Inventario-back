@@ -10,12 +10,12 @@ const mensaje = (texto: string) => ({ ok: false, mensaje: texto });
 // Login: solo cuenta los intentos FALLIDOS. Frena la fuerza bruta de
 // contraseñas sin molestar a quien entra bien.
 export const loginLimiter = rateLimit({
-  windowMs: 5 * 60 * 1000, // 15 minutos -- ahora 5 minutos
+  windowMs: 5 * 60 * 1000, // Ahora 5 minutos
   limit: 5, // 5 intentos
   skipSuccessfulRequests: true,
   standardHeaders: true,
   legacyHeaders: false,
-  message: mensaje("Demasiados intentos de inicio de sesión. Probá de nuevo en 15 minutos."),
+  message: mensaje("Demasiados intentos de inicio de sesión. Probá de nuevo en 5 minutos."),
 });
 
 // Alta de comercios: es el único endpoint público de escritura (crea filas y
