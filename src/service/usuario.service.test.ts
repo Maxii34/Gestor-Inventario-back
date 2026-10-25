@@ -157,8 +157,21 @@ describe("usuarioService.login", () => {
 });
 
 describe("usuarioService.refresh", () => {
+  // Un refresh token vigente y un usuario activo: la base de los casos felices.
+  const prepararRefreshValido = () => {
+    vi.mocked(refreshTokenRepository.findByToken).mockResolvedValue({
+      id: 1, usuarioId: 1, token: "abc", revocado: false,
+      expiraEn: new Date(Date.now() + 100000), fechaCreacion: new Date(),
+    });
+    vi.mocked(usuarioRepository.findByIdParaRefresh).mockResolvedValue({
+      id: 1, rol: "ADMIN", comercioId: 1, activo: true,
+    } as any);
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
+    // Por defecto el comercio existe y está activo.
+    vi.mocked(comercioRepository.findById).mockResolvedValue(COMERCIO);
   });
 
   it("lanza UnauthorizedError si el token no existe", async () => {
@@ -187,13 +200,7 @@ describe("usuarioService.refresh", () => {
   });
 
   it("rota el token re-derivando el comercio del usuario (no del pedido)", async () => {
-    vi.mocked(refreshTokenRepository.findByToken).mockResolvedValue({
-      id: 1, usuarioId: 1, token: "abc", revocado: false,
-      expiraEn: new Date(Date.now() + 100000), fechaCreacion: new Date(),
-    });
-    vi.mocked(usuarioRepository.findByIdParaRefresh).mockResolvedValue({
-      id: 1, rol: "ADMIN", comercioId: 1, activo: true,
-    } as any);
+    prepararRefreshValido();
     vi.mocked(refreshTokenRepository.revocar).mockResolvedValue({} as any);
     vi.mocked(refreshTokenRepository.create).mockResolvedValue({} as any);
     vi.mocked(jwt.sign).mockReturnValue("nuevo-access-token" as never);
@@ -206,6 +213,26 @@ describe("usuarioService.refresh", () => {
     );
     expect(resultado.accessToken).toBe("nuevo-access-token");
     expect(resultado.refreshToken).toBeDefined();
+  });
+
+  it("rechaza el refresh si el comercio está suspendido, sin consumir el token", async () => {
+    prepararRefreshValido();
+    vi.mocked(comercioRepository.findById).mockResolvedValue({ ...COMERCIO, activo: false });
+
+    await expect(usuarioService.refresh("abc")).rejects.toThrow(UnauthorizedError);
+
+    // El chequeo va antes de la rotación: el token viejo no se gasta
+    // y no se emite uno nuevo.
+    expect(refreshTokenRepository.revocar).not.toHaveBeenCalled();
+    expect(refreshTokenRepository.create).not.toHaveBeenCalled();
+  });
+
+  it("rechaza el refresh si el comercio del usuario ya no existe", async () => {
+    prepararRefreshValido();
+    vi.mocked(comercioRepository.findById).mockResolvedValue(null);
+
+    await expect(usuarioService.refresh("abc")).rejects.toThrow(UnauthorizedError);
+    expect(refreshTokenRepository.revocar).not.toHaveBeenCalled();
   });
 });
 

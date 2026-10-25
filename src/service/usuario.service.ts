@@ -134,6 +134,14 @@ export const usuarioService = {
       throw new UnauthorizedError("Usuario no encontrado o inactivo");
     }
 
+    // Un comercio suspendido no puede renovar su sesión. Este chequeo va ANTES
+    // de la rotación: si se rechaza, el refresh token queda sin consumir y
+    // sigue sirviendo cuando el comercio se reactive.
+    const comercio = await comercioRepository.findById(usuario.comercioId);
+    if (!comercio || !comercio.activo) {
+      throw new UnauthorizedError("El comercio está suspendido");
+    }
+
     // Rotación: se invalida el token usado y se emite uno nuevo
     await refreshTokenRepository.revocar(registrado.id, registrado.usuarioId);
     const nuevoRefreshToken = await generarRefreshToken(usuario.id);
