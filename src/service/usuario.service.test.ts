@@ -236,32 +236,33 @@ describe("usuarioService.refresh", () => {
   });
 });
 
-describe("usuarioService.update", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
+it("lanza ConflictError al desactivar al único ADMIN del comercio", async () => {
+  vi.mocked(usuarioRepository.findById).mockResolvedValue(usuarioFalso); // ADMIN activo
+  vi.mocked(usuarioRepository.findByRol).mockResolvedValue([usuarioFalso]); // el único
 
-  it("revoca todas las sesiones cuando activo pasa a false", async () => {
-    const vendedor = { ...usuarioFalso, id: 3, rol: "VENDEDOR" as const };
-    vi.mocked(usuarioRepository.findById).mockResolvedValue(vendedor);
-    vi.mocked(refreshTokenRepository.revocarTodosDeUsuario).mockResolvedValue({ count: 2 } as any);
-    vi.mocked(usuarioRepository.update).mockResolvedValue({ ...vendedor, activo: false });
+  await expect(usuarioService.update(1, 1, { activo: false })).rejects.toThrow(ConflictError);
+  expect(refreshTokenRepository.revocarTodosDeUsuario).not.toHaveBeenCalled();
+  expect(usuarioRepository.update).not.toHaveBeenCalled();
+});
 
-    await usuarioService.update(3, 1, { activo: false });
+it("lanza ConflictError al quitarle el rol al único ADMIN", async () => {
+  vi.mocked(usuarioRepository.findById).mockResolvedValue(usuarioFalso);
+  vi.mocked(usuarioRepository.findByRol).mockResolvedValue([usuarioFalso]);
 
-    expect(refreshTokenRepository.revocarTodosDeUsuario).toHaveBeenCalledWith(3);
-    expect(usuarioRepository.update).toHaveBeenCalledWith(3, 1, { activo: false });
-  });
+  await expect(usuarioService.update(1, 1, { rol: "VENDEDOR" })).rejects.toThrow(ConflictError);
+  expect(usuarioRepository.update).not.toHaveBeenCalled();
+});
 
-  it("no revoca sesiones si el usuario sigue activo", async () => {
-    const vendedor = { ...usuarioFalso, id: 3, rol: "VENDEDOR" as const };
-    vi.mocked(usuarioRepository.findById).mockResolvedValue(vendedor);
-    vi.mocked(usuarioRepository.update).mockResolvedValue({ ...vendedor, nombre: "Nuevo" });
+it("permite desactivar a un ADMIN si hay otro administrador activo", async () => {
+  const otroAdmin = { ...usuarioFalso, id: 2 };
+  vi.mocked(usuarioRepository.findById).mockResolvedValue(usuarioFalso);
+  vi.mocked(usuarioRepository.findByRol).mockResolvedValue([usuarioFalso, otroAdmin]);
+  vi.mocked(refreshTokenRepository.revocarTodosDeUsuario).mockResolvedValue({} as any);
+  vi.mocked(usuarioRepository.update).mockResolvedValue({ ...usuarioFalso, activo: false });
 
-    await usuarioService.update(3, 1, { nombre: "Nuevo" });
+  await usuarioService.update(1, 1, { activo: false });
 
-    expect(refreshTokenRepository.revocarTodosDeUsuario).not.toHaveBeenCalled();
-  });
+  expect(usuarioRepository.update).toHaveBeenCalledWith(1, 1, { activo: false });
 });
 
 describe("usuarioService.delete", () => {

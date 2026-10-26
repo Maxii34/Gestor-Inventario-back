@@ -160,7 +160,7 @@ export const usuarioService = {
     // ya no sirva) se cumple igual, y no hace falta filtrar esa información.
   },
 
-  update: async (id: number, comercioId: number, data: ActualizarUsuarioDTO) => {
+    update: async (id: number, comercioId: number, data: ActualizarUsuarioDTO) => {
     const usuario = await usuarioRepository.findById(id, comercioId);
     if (!usuario) {
       throw new NotFoundError("Usuario no encontrado");
@@ -170,6 +170,23 @@ export const usuarioService = {
       const admins = await usuarioRepository.findByRol(comercioId, "ADMIN");
       if (admins.length >= 1) {
         throw new ConflictError("Ya existe un administrador en este comercio");
+      }
+    }
+
+    // No se puede dejar al comercio sin un administrador activo: ni quitándole
+    // el rol ni desactivando al único que queda. Va ANTES de revocar sesiones:
+    // si se rechaza el cambio, el admin no debe perder sus tokens.
+    const dejaDeSerAdminActivo =
+      usuario.rol === "ADMIN" &&
+      usuario.activo &&
+      (data.activo === false || data.rol === "VENDEDOR");
+
+    if (dejaDeSerAdminActivo) {
+      const admins = await usuarioRepository.findByRol(comercioId, "ADMIN");
+      if (admins.length <= 1) {
+        throw new ConflictError(
+          "No se puede desactivar ni quitar el rol al único administrador del comercio"
+        );
       }
     }
 
