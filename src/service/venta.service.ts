@@ -1,5 +1,3 @@
-import { Preference, Payment } from "mercadopago";
-import mpClient from "../config/mercadopago";
 import { prisma } from "../config/prisma";
 import { ventaRepository } from "../repositores/venta.repository";
 import { productoRepository } from "../repositores/producto.repository";
@@ -29,18 +27,13 @@ export interface AnularVentaDTO {
   motivo: string;
 }
 
-// Métodos que se procesan a través del checkout de Mercado Pago.
-// EFECTIVO no está acá: se cobra directo, sin pasar por MP.
-const METODOS_MERCADO_PAGO: MetodoPago[] = ["PEDIDO_DISTANCIA"];
-
 // Función interna compartida: valida stock y arma los datos de detalle,
-// sin tocar la base de datos todavía. La usan ambos caminos (efectivo y MP).
+// sin tocar la base de datos todavía.
 // Cada producto se lee dentro del comercio: uno ajeno da NotFoundError sin
 // confirmar su existencia (el comercio del detalle lo fija la FK compuesta).
 const construirDetalles = async (detalles: DetalleInput[], comercioId: number) => {
   let total = 0;
   const detallesData = [];
-  const itemsParaMP = [];
 
   for (const item of detalles) {
     const producto = await productoRepository.findById(item.productoId, comercioId);
@@ -62,17 +55,9 @@ const construirDetalles = async (detalles: DetalleInput[], comercioId: number) =
       producto: { connect: { id: item.productoId } },
       comercio: { connect: { id: comercioId } },
     });
-
-    itemsParaMP.push({
-      id: String(producto.id),
-      title: producto.nombre,
-      quantity: item.cantidad,
-      currency_id: "ARS",
-      unit_price: precioUnitario,
-    });
   }
 
-  return { total, detallesData, itemsParaMP };
+  return { total, detallesData };
 };
 
 export const ventaService = {
@@ -98,17 +83,14 @@ export const ventaService = {
     return venta;
   },
 
-  // Punto de entrada único: decide el camino según el método de pago.
+  // Punto de entrada único: registra la venta directa en estado COMPLETADA.
+  // El método de pago solo se registra; el sistema no procesa pagos.
   // El vendedorId queda registrado como autor (R-ROL-04).
   iniciarVenta: async (data: CrearVentaDTO, comercioId: number, vendedorId: number) => {
-    if (METODOS_MERCADO_PAGO.includes(data.metodoPago)) {
-      return ventaService.iniciarVentaConMercadoPago(data, comercioId, vendedorId);
-    }
     return ventaService.crearVentaDirecta(data, comercioId, vendedorId);
   },
 
-  // EFECTIVO: se completa al instante, sin pasar por Mercado Pago.
-  // Es la misma lógica que teníamos antes de integrar MP.
+  // La venta se completa al instante con el método de pago informado.
   crearVentaDirecta: async (data: CrearVentaDTO, comercioId: number, vendedorId: number) => {
     const { total, detallesData } = await construirDetalles(data.detalles, comercioId);
 
@@ -152,7 +134,7 @@ export const ventaService = {
             cantidad: item.cantidad,
             stockAnterior,
             stockNuevo,
-            motivo: "Venta (efectivo)",
+            motivo: "Venta",
             producto: { connect: { id: item.productoId } },
             comercio: { connect: { id: comercioId } },
           },
@@ -177,146 +159,9 @@ export const ventaService = {
     return { ventaId: venta.id, initPoint: null };
   },
 
-  // TARJETA / TRANSFERENCIA: arma la venta en estado PENDIENTE (sin tocar
-  // stock) y genera la preferencia de pago en Mercado Pago.
-  iniciarVentaConMercadoPago: async (data: CrearVentaDTO, comercioId: number, vendedorId: number) => {
-    const { total, detallesData, itemsParaMP } = await construirDetalles(data.detalles, comercioId);
-
-    if (data.clienteId) {
-      const cliente = await clienteRepository.findById(data.clienteId, comercioId);
-      if (!cliente) {
-        throw new NotFoundError("Cliente no encontrado");
-      }
-    }
-
-    const venta = await ventaRepository.create({
-      total,
-      metodoPago: data.metodoPago,
-      cliente: data.clienteId ? { connect: { id: data.clienteId } } : undefined,
-      comercio: { connect: { id: comercioId } },
-      vendedor: { connect: { id: vendedorId } },
-      detalles: { create: detallesData },
-    });
-
-    const preferenceClient = new Preference(mpClient);
-    const preferencia = await preferenceClient.create({
-      body: {
-        items: itemsParaMP,
-        external_reference: String(venta.id),
-        back_urls: {
-          success: `${process.env.FRONTEND_URL}/pago-exitoso`,
-          failure: `${process.env.FRONTEND_URL}/pago-fallido`,
-          pending: `${process.env.FRONTEND_URL}/pago-pendiente`,
-        },
-        notification_url: `${process.env.BACKEND_URL}/ventas/webhook`,
-      },
-    });
-
-    await ventaRepository.update(venta.id, comercioId, {
-      mercadoPagoPreferenceId: preferencia.id,
-    });
-
-    return {
-      ventaId: venta.id,
-      initPoint: preferencia.init_point,
-    };
-  },
-
-  confirmarPago: async (paymentId: string) => {
-    const paymentClient = new Payment(mpClient);
-    const payment = await paymentClient.get({ id: paymentId });
-
-    const ventaId = Number(payment.external_reference);
-    if (!ventaId) {
-      throw new BadRequestError("El pago no tiene una referencia de venta válida");
-    }
-
-    // El webhook no trae comercio del solicitante (lo autentica la firma HMAC):
-    // se resuelve la venta por su id global y el resto opera con el comercio
-    // propio de la venta. El external_reference solo puede apuntar a la venta
-    // para la que se creó la preferencia.
-    const venta = await ventaRepository.findByIdGlobal(ventaId);
-    if (!venta) {
-      throw new NotFoundError(`Venta ${ventaId} no encontrada`);
-    }
-    const comercioId = venta.comercioId;
-
-    if (venta.estado !== "PENDIENTE") {
-      return venta;
-    }
-
-    if (payment.status === "approved") {
-      const ventaActualizada = await prisma.$transaction(async (tx) => {
-        // Claim condicional de la transición PENDIENTE → COMPLETADA: solo la
-        // primera de dos notificaciones concurrentes lo consigue. Si el claim
-        // falla, la otra rama ya procesó la venta: se devuelve su estado fresco
-        // sin descontar ni escribir nada (mismo contrato que el early-return).
-        // Todo lo escrito después queda cubierto por el rollback del tx ante fallos.
-        const claim = await ventaRepository.updateMany(
-          { id: venta.id, comercioId, estado: "PENDIENTE" },
-          { estado: "COMPLETADA", mercadoPagoPaymentId: String(payment.id) },
-          tx
-        );
-        if (claim.count === 0) {
-          const fresca = await ventaRepository.findById(venta.id, comercioId, tx);
-          return fresca ?? venta;
-        }
-
-        for (const detalle of venta.detalles) {
-          // Descuento atómico y condicional (igual que en crearVentaDirecta).
-          const descuento = await productoRepository.updateMany(
-            { id: detalle.productoId, comercioId, stock: { gte: detalle.cantidad } },
-            { stock: { decrement: detalle.cantidad } },
-            tx
-          );
-          if (descuento.count === 0) {
-            const existente = await productoRepository.findById(detalle.productoId, comercioId, tx);
-            if (!existente) {
-              throw new NotFoundError(`Producto ${detalle.productoId} no encontrado`);
-            }
-            throw new ConflictError(`Stock insuficiente para ${existente.nombre}`);
-          }
-
-          const producto = await productoRepository.findById(detalle.productoId, comercioId, tx);
-          if (!producto) {
-            throw new NotFoundError(`Producto ${detalle.productoId} no encontrado`);
-          }
-          const stockNuevo = producto.stock;
-          const stockAnterior = stockNuevo + detalle.cantidad;
-
-          await movimientoRepository.create(
-            {
-              tipo: "SALIDA",
-              cantidad: detalle.cantidad,
-              stockAnterior,
-              stockNuevo,
-              motivo: "Venta (Mercado Pago)",
-              producto: { connect: { id: detalle.productoId } },
-              comercio: { connect: { id: comercioId } },
-            },
-            tx
-          );
-        }
-
-        return ventaRepository.findById(venta.id, comercioId, tx);
-      });
-
-      return ventaActualizada;
-    }
-
-    if (payment.status === "rejected") {
-      return ventaRepository.update(venta.id, comercioId, {
-        estado: "RECHAZADA",
-        mercadoPagoPaymentId: String(payment.id),
-      });
-    }
-
-    return venta;
-  },
-
   // Modificación puntual de una venta PENDIENTE (ej: asignar cliente).
   // No es vía de cambio de estado: las transiciones van por la operación
-  // explícita `anular` y la confirmación de pagos solo por webhook autenticado.
+  // explícita `anular`.
   // El rol ADMIN se exige en la ruta; acá se valida la compatibilidad de estado.
   update: async (id: number, comercioId: number, data: ActualizarVentaDTO) => {
     const venta = await ventaRepository.findById(id, comercioId);
@@ -343,7 +188,7 @@ export const ventaService = {
 
     if (data.estado === "COMPLETADA") {
       throw new ConflictError(
-        "Una venta pendiente no puede completarse manualmente. La confirmación de pagos de Mercado Pago se realiza exclusivamente a través del webhook autenticado."
+        "Una venta pendiente no puede completarse manualmente."
       );
     }
 
@@ -357,8 +202,7 @@ export const ventaService = {
   },
 
   // Anulación explícita con motivo obligatorio.
-  // - PENDIENTE → ANULADA directo (nunca descontó stock: el camino MP solo lo
-  //   toca en el webhook al confirmar).
+  // - PENDIENTE → ANULADA directo (nunca descontó stock).
   // - COMPLETADA → ANULADA reponiendo stock con movimientos ENTRADA
   //   compensatorios, todo dentro de una transacción. El claim condicional
   //   (`updateMany` con `where` por estado) hace que dos anulaciones
