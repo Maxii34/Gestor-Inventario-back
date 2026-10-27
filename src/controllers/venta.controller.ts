@@ -1,7 +1,6 @@
 import { Request, Response } from "express";
 import { ventaService } from "../service/venta.service";
 import { AuthRequest, requireComercio } from "../middlewares/auth.middleware";
-import { MpWebhookRequest } from "../middlewares/mercadopagoWebhook";
 
 export const ventaController = {
 
@@ -24,33 +23,17 @@ export const ventaController = {
     res.status(200).json({ ok: true, mensaje: "Venta obtenida correctamente", data: venta });
   },
 
-  // Ahora inicia el proceso de pago en vez de completar la venta al instante.
-  // Devuelve el link de Mercado Pago para que el frontend redirija al cliente.
+  // Registra la venta directa y completa al instante. El método de pago solo
+  // se guarda; el sistema no procesa pagos.
   // El vendedor queda registrado como autor desde el token (nunca del body).
   create: async (req: Request, res: Response) => {
     const auth = req as AuthRequest;
     const resultado = await ventaService.iniciarVenta(req.body, requireComercio(auth), auth.usuario!.id);
     res.status(201).json({
       ok: true,
-      mensaje: "Venta iniciada, redirigir al link de pago",
+      mensaje: "Venta registrada correctamente",
       data: resultado,
     });
-  },
-
-  // Nuevo: acá le pega Mercado Pago, no el frontend ni un usuario común.
-  // El middleware verificarFirmaMercadoPago ya autenticó la notificación y dejó
-  // el id firmado en req.mpDataId: se procesa ese valor (respaldo: body.data.id).
-  // Siempre respondemos 200 rápido (MP reintenta si no le contestás a tiempo),
-  // incluso si la notificación no era del tipo que nos interesa.
-  webhook: async (req: Request, res: Response) => {
-    const { type, data } = req.body;
-    const paymentId = (req as MpWebhookRequest).mpDataId ?? data?.id;
-
-    if (type === "payment" && paymentId) {
-      await ventaService.confirmarPago(String(paymentId));
-    }
-
-    res.status(200).send("ok");
   },
 
   update: async (req: Request, res: Response) => {

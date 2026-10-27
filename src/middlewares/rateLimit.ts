@@ -29,13 +29,11 @@ export const registroLimiter = rateLimit({
 });
 
 // Límite general, generoso a propósito: un comercio con varias cajas comparte
-// la misma IP. El webhook de Mercado Pago queda afuera para no perder
-// notificaciones de pago.
+// la misma IP.
 export const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 1000,
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => req.originalUrl.startsWith("/ventas/webhook"),
   message: mensaje("Demasiadas solicitudes. Probá de nuevo en unos minutos."),
 });

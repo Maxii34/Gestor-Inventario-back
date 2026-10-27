@@ -27,7 +27,7 @@ app.use(helmet());
 // (ej: "https://mi-frontend.vercel.app,http://localhost:3000").
 // - Producción sin CORS_ORIGINS: se bloquean los navegadores de otros orígenes.
 // - Desarrollo sin CORS_ORIGINS: se permite todo para no trabarte.
-// Bruno, Postman y el webhook de Mercado Pago no usan CORS (no son navegadores).
+// Bruno y Postman no usan CORS (no son navegadores).
 const origenesPermitidos = (process.env.CORS_ORIGINS ?? "")
   .split(",")
   .map((o) => o.trim())

@@ -21,24 +21,6 @@ export const ventaRepository = {
       include: { detalles: { include: { producto: true } }, cliente: true },
     }),
 
-  // Solo para el webhook de MP: la notificación no trae comercio del
-  // solicitante (la autentica la firma HMAC) y el external_reference es el id
-  // global de la venta. El servicio sigue operando con venta.comercioId.
-  findByIdGlobal: (id: number, tx?: PrismaTx) =>
-    (tx ?? prisma).venta.findUnique({
-      where: { id },
-      include: { detalles: { include: { producto: true } }, cliente: true },
-    }),
-
-  // Nuevo: el webhook de Mercado Pago no conoce el id interno de la venta,
-  // solo el external_reference que le mandamos al crear la preferencia.
-  // Este método la busca por ese dato.
-  findByPreferenceId: (preferenceId: string, tx?: PrismaTx) =>
-    (tx ?? prisma).venta.findFirst({
-      where: { mercadoPagoPreferenceId: preferenceId },
-      include: { detalles: { include: { producto: true } } },
-    }),
-
   create: (data: Prisma.VentaCreateInput, tx?: PrismaTx) =>
     (tx ?? prisma).venta.create({ data, include: { detalles: true } }),
 
