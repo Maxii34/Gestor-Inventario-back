@@ -47,7 +47,7 @@ export const ventaRepository = {
 
   // Actualización condicional por estado: se usa para reclamar transiciones
   // (ej: anular) de forma atómica y evitar dobles operaciones concurrentes.
-  updateMany: (where: Prisma.VentaWhereInput, data: Prisma.VentaUpdateInput, tx?: PrismaTx) =>
+  updateMany: (where: Prisma.VentaWhereInput, data: Prisma.VentaUncheckedUpdateManyInput, tx?: PrismaTx) =>
     (tx ?? prisma).venta.updateMany({ where, data }),
 
   delete: (id: number, comercioId: number, tx?: PrismaTx) =>

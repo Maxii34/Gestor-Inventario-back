@@ -227,6 +227,7 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)("integración PG: concurrencia de ventas y p
     ]);
 
     const ok = [r1, r2].filter((r) => r.status === "fulfilled");
+    console.log("RESULTADOS:", [r1, r2].map((r) => (r.status === "rejected" ? String(r.reason) : "ok")));
     expect(ok).toHaveLength(1);
     expect(await stockDe(producto.id)).toBe(10);
     expect(await entradasDe(producto.id)).toBe(1);

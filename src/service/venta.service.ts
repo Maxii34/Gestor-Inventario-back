@@ -419,7 +419,7 @@ export const ventaService = {
           estado: "ANULADA",
           motivoAnulacion: motivoLimpio,
           fechaAnulacion: new Date(),
-          anuladoPor: { connect: { id: anuladoPorId } },
+          anuladoPorId,
         },
         tx
       );

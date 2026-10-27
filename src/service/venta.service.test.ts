@@ -412,6 +412,7 @@ describe("ventaService.anular", () => {
     vi.mocked(ventaRepository.update).mockResolvedValue({ id: 1, estado: "ANULADA" } as any);
 
     const resultado = await ventaService.anular(1, 1, "el cliente canceló", 7);
+    // PENDIENTE usa `update`, que sí admite relaciones: se conecta con `connect`.
     expect(ventaRepository.update).toHaveBeenCalledWith(1, 1, expect.objectContaining({
       estado: "ANULADA",
       motivoAnulacion: "el cliente canceló",
@@ -437,9 +438,11 @@ describe("ventaService.anular", () => {
 
     await ventaService.anular(1, 1, "devolución", 7);
 
+    // COMPLETADA usa `updateMany`, que NO admite relaciones: se escribe el
+    // campo escalar `anuladoPorId` (un `connect` acá rompe en ejecución).
     expect(ventaRepository.updateMany).toHaveBeenCalledWith(
       { id: 1, comercioId: 1, estado: "COMPLETADA" },
-      expect.objectContaining({ estado: "ANULADA", anuladoPor: { connect: { id: 7 } } }),
+      expect.objectContaining({ estado: "ANULADA", anuladoPorId: 7 }),
       expect.anything()
     );
     expect(productoRepository.update).toHaveBeenCalledWith(
