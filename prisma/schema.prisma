@@ -147,9 +147,6 @@ model Venta {
   metodoPago MetodoPago
   estado     EstadoVenta @default(PENDIENTE)
 
-  mercadoPagoPreferenceId String?
-  mercadoPagoPaymentId    String? @unique
-
   motivoAnulacion String?
   fechaAnulacion  DateTime?
 
@@ -242,7 +239,6 @@ enum MetodoPago {
   EFECTIVO
   TRANSFERENCIA
   TARJETA
-  PEDIDO_DISTANCIA
 }
 
 enum EstadoVenta {
