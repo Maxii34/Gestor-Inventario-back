@@ -1,8 +1,8 @@
 # 📦 Gestor de Inventario
 
-Sistema backend para gestión de inventario, ventas y stock de un comercio, con autenticación por roles y cobros integrados a través de Mercado Pago.
+Sistema backend para gestión de inventario, ventas y stock de un comercio, con autenticación por roles y registro del método de pago.
 
-Permite administrar productos, categorías, clientes, movimientos de stock y ventas, con control de acceso diferenciado entre administradores y vendedores, transacciones atómicas para evitar inconsistencias de stock, y un flujo de pago completo mediante Checkout Pro.
+Permite administrar productos, categorías, clientes, movimientos de stock y ventas, con control de acceso diferenciado entre administradores y vendedores, transacciones atómicas para evitar inconsistencias de stock, y registro del método de pago en cada venta. El sistema no procesa pagos.
 
 ---
 
@@ -15,7 +15,6 @@ Permite administrar productos, categorías, clientes, movimientos de stock y ven
 ![Prisma](https://img.shields.io/badge/Prisma-2D3748?style=for-the-badge&logo=prisma&logoColor=white)
 ![JWT](https://img.shields.io/badge/JWT-black?style=for-the-badge&logo=jsonwebtokens&logoColor=white)
 ![Zod](https://img.shields.io/badge/Zod-3E67B1?style=for-the-badge&logo=zod&logoColor=white)
-![Mercado Pago](https://img.shields.io/badge/Mercado%20Pago-00B1EA?style=for-the-badge&logo=mercadopago&logoColor=white)
 ![bcrypt](https://img.shields.io/badge/bcrypt-338033?style=for-the-badge)
 ![Vitest](https://img.shields.io/badge/Vitest-6E9F18?style=for-the-badge&logo=vitest&logoColor=white)
 
@@ -28,7 +27,7 @@ Permite administrar productos, categorías, clientes, movimientos de stock y ven
 - **Control de stock**: registro de movimientos (`ENTRADA`, `SALIDA`, `AJUSTE`) con cálculo automático de stock, protegido por transacciones para evitar inconsistencias.
 - **Gestión de clientes**: CRUD con soft delete.
 - **Ventas**: registro de ventas con múltiples ítems, cálculo automático de totales, y descuento de stock atómico junto con la generación de movimientos.
-- **Pagos con Mercado Pago (Checkout Pro)**: la venta queda en estado `PENDIENTE` hasta que Mercado Pago confirma el pago vía webhook; recién ahí se descuenta stock y se completa la venta.
+- **Registro del método de pago**: cada venta guarda si el cobro fue en efectivo, transferencia o tarjeta. El sistema no procesa pagos ni se integra con pasarelas de pago.
 - **Paginación**: en los listados de clientes, productos, movimientos y ventas.
 - **Manejo de errores centralizado**: clases de error tipadas (`NotFoundError`, `ConflictError`, `BadRequestError`, `UnauthorizedError`, `ForbiddenError`) con status HTTP correctos y un único middleware de manejo de errores.
 - **Tests automatizados**: cobertura de los flujos de mayor riesgo del negocio (stock, ventas y autenticación) con Vitest.
@@ -40,7 +39,7 @@ Permite administrar productos, categorías, clientes, movimientos de stock y ven
 ```text
 src/
 
-├── config/          # Configuración de Prisma y Mercado Pago
+├── config/          # Configuración de Prisma
 ├── controllers/     # Controladores de cada entidad
 ├── generated/       # Cliente de Prisma generado
 ├── middlewares/     # Autenticación, validación y manejo de errores
@@ -111,16 +110,6 @@ DATABASE_URL=
 # Autenticación
 JWT_SECRET=
 JWT_EXPIRES_IN=
-
-# Mercado Pago
-MERCADOPAGO_ACCESS_TOKEN=
-# Clave secreta de webhooks ("Tus integraciones > Webhooks"). Obligatoria para que
-# POST /ventas/webhook acepte notificaciones (sin ella responde 503 y no confirma pagos).
-MERCADOPAGO_WEBHOOK_SECRET=
-
-# URLs
-FRONTEND_URL=
-BACKEND_URL=
 ```
 
 > ⚠️ El archivo `.env` no debe subirse al repositorio. Verificá que esté incluido en `.gitignore`.
@@ -151,7 +140,6 @@ BACKEND_URL=
 | GET/POST/PUT/DELETE | `/clientes` | Gestión de clientes | Autenticado |
 | GET/POST/PUT/DELETE | `/movimientos` | Movimientos de stock | Autenticado |
 | GET/POST/PUT/DELETE | `/ventas` | Gestión de ventas | Autenticado |
-| POST | `/ventas/webhook` | Notificaciones de Mercado Pago | Público (uso exclusivo de Mercado Pago) |
 
 ---
 
@@ -160,10 +148,10 @@ BACKEND_URL=
 El proyecto incluye tests unitarios con **Vitest**, enfocados en los flujos de negocio con mayor riesgo real (no se busca cobertura total, sino cubrir la lógica que puede fallar silenciosamente):
 
 - **`movimientoService`**: cálculo de stock en `ENTRADA`, `SALIDA` y `AJUSTE`, bloqueo por stock insuficiente, e integridad de la transacción atómica que descuenta stock y registra el movimiento.
-- **`ventaService`**: los dos caminos de cobro (inmediato y vía Mercado Pago), y el procesamiento del webhook de pago con sus casos borde (pago aprobado, rechazado, y notificaciones duplicadas).
+- **`ventaService`**: venta directa, anulación con reposición de stock y máquina de estados.
 - **`usuarioService`**: hash y verificación de contraseñas, rotación de refresh tokens, y las reglas de negocio sobre el administrador único del sistema.
 
-Todos los tests usan mocks sobre los repositories y servicios externos (Prisma, Mercado Pago, bcrypt, JWT), por lo que no requieren conexión a una base de datos real para ejecutarse.
+Todos los tests usan mocks sobre los repositories y servicios externos (Prisma, bcrypt, JWT), por lo que no requieren conexión a una base de datos real para ejecutarse.
 
 Para correrlos:
 

@@ -19,7 +19,7 @@
 2. Proteger `GET /estadisticas/recaudacion` con `verificarToken` (ya importado,
    hoy sin usar) + validación Zod de `desde/hasta`.
 3. `cors({ origin: [FRONTEND_URL] })`, `helmet()`, `express.json({ limit: "100kb" })`,
-   `morgan` solo en dev, `rate-limit` en `login/refresh/webhook`, fail-fast si falta
+   `morgan` solo en dev, `rate-limit` en `login/refresh`, fail-fast si falta
    `JWT_SECRET` (hoy `as string` en `usuario.service.ts:28` y `auth.middleware.ts:5`).
 4. Extender `validate` a `params/query` (hoy solo `body`): schemas `id`, `page/limit`
    (tope 50), fechas.
@@ -32,8 +32,8 @@ rápidos → `429`; arranque sin `JWT_SECRET` → falla explícita, no `500` tar
 
 **Objetivo:** crear `Comercio` y `comercioId` + trazabilidad, sin romper datos.
 **Toca:** `prisma/schema.prisma` + **una** migración (más `CHECK stock>=0`,
-`@@unique/@@index` compuestos, `mercadoPagoPaymentId @unique`,
-`Venta.fechaActualizacion`, `onDelete` explícitos). Ver `TECHNICAL_DESIGN.md` §3.
+`@@unique/@@index` compuestos, `Venta.fechaActualizacion`, `onDelete` explícitos).
+Ver `TECHNICAL_DESIGN.md` §3.
 
 Orden SQL sugerido: `CREATE TABLE Comercio` → crear comercio legado
 ("Comercio inicial — migrar") → `ADD comercioId NOT NULL DEFAULT <legado>` por tabla
@@ -92,34 +92,29 @@ bloqueo de `update` libre y de `delete` físico), `src/controllers/venta.control
 `Movimiento ENTRADA` y la venta queda `ANULADA` con historia intacta;
 `GET /ventas/:id` muestra vendedor.
 
-## Etapa 5 — Stock concurrente + webhook idempotente (MP)
+## Etapa 5 — Stock concurrente
 
-**Objetivo:** sin oversell ni doble descuento.
+**Objetivo:** sin oversell en ventas concurrentes.
 **Toca:** `src/service/movimiento.service.ts` + `venta.service.ts`
-(`updateMany` condicional `stock >= cantidad` + `CHECK`, transición condicional
-`updateMany where { estado: PENDIENTE }`, `paymentId @unique`, compensación ante
-fallo de preferencia y ante falta de stock post-cobro), `venta.controller.webhook`
-(verificación de firma HMAC + `200` rápido), `PUT/DELETE /movimientos` restringidos.
+(`updateMany` condicional `stock >= cantidad` + `CHECK`),
+`PUT/DELETE /movimientos` restringidos.
 
 **Validación:** test de concurrencia (2 ventas simultáneas, stock 1 → una `409`,
-stock final ≥ 0); doble webhook mismo `paymentId` (secuencial y concurrente) →
-un solo descuento y una sola `SALIDA`; fallo de `Preference.create` → sin
-`PENDIENTE` huérfana (queda `ANULADA` con motivo); aprobado sin stock → estado
-final definido + alerta, nunca `PENDIENTE` eterna.
+stock final ≥ 0). El método de pago solo se registra; no se procesan pagos.
 
 ## Etapa 6 — Tests, índices y endurecimiento final
 
 **Objetivo:** cubrir lo que hoy no está cubierto y verificar rendimiento/seguridad.
 **Toca:** `src/service/*.test.ts` + nuevos tests
 (`categoria/cliente/producto/estadistica` hoy con 0 tests; aislamiento por comercio;
-concurrencia; webhook; admin-por-comercio; `logout/refresh` con comercio),
+concurrencia; admin-por-comercio; `logout/refresh` con comercio),
 revisión de `@@index` con `EXPLAIN` en listados, `morgan`/`helmet`/`limit` finales.
 
 **Validación:** `npm test` 100% en verde incluyendo nuevos suites;
 `npm run build` OK; auditoría manual: `rg -n "findUnique|findFirst|findMany" src/repositores`
 muestra `comercioId` en toda query tenant; `rg -n "comercioId" src/controllers src/service`
 sin lectura de `req.body/query/params` para el scope; checklist `SAAS_RULES.md`
-`R-TEN/R-ROL/R-VTA/R-STK/R-MP/R-SEC/R-DAT` marcado uno por uno.
+`R-TEN/R-ROL/R-VTA/R-STK/R-PAG/R-SEC/R-DAT` marcado uno por uno.
 
 ## Etapa 7 — Corte y datos (fuera de este repo de diseño)
 
@@ -133,5 +128,5 @@ suscripciones (no-objetivos `R-SCP-02`).
 ## Orden resumido y dependencias
 
 `0 (seguridad, sin schema)` → `1 (schema+migración)` → `2 (auth/scope)` →
-`3 (aislamiento repos/servicios)` → `4 (ventas inmutables)` → `5 (stock/webhook)` →
+`3 (aislamiento repos/servicios)` → `4 (ventas inmutables)` → `5 (stock concurrente)` →
 `6 (tests/índices)` → `7 (corte)`. No saltear: 3 depende de 1–2, 4–5 dependen de 3.
