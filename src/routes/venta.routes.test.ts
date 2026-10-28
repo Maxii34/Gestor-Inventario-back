@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
 import { esAdmin, verificarToken } from "../middlewares/auth.middleware";
-import { verificarFirmaMercadoPago } from "../middlewares/mercadopagoWebhook";
 import { ForbiddenError } from "../utils/errors";
 import ventaRouter from "./venta.routes";
 
@@ -26,12 +25,6 @@ describe("venta.routes: protección de operaciones administrativas", () => {
     expect(handlers).toContain(verificarToken);
     expect(handlers).toContain(esAdmin);
     expect(handlers.indexOf(esAdmin)).toBeLessThan(handlers.length - 1);
-  });
-
-  it("POST /webhook conserva la validación de firma (compatibilidad MP)", () => {
-    const handlers = handlersDe("/webhook", "post");
-    expect(handlers).toContain(verificarFirmaMercadoPago);
-    expect(handlers).not.toContain(verificarToken);
   });
 
   it("esAdmin rechaza a VENDEDOR con 403", () => {

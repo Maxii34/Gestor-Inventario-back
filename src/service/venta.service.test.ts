@@ -6,27 +6,6 @@ import { movimientoRepository } from "../repositores/movimiento.repository";
 import { clienteRepository } from "../repositores/cliente.repository";
 import { NotFoundError, ConflictError, BadRequestError } from "../utils/errors";
 
-// vi.hoisted: crea estas funciones ANTES de que se evalúen los vi.mock de abajo.
-// Es necesario porque vi.mock se "eleva" (hoist) al principio del archivo, y
-// si intentáramos usar variables normales acá, todavía no existirían.
-const preferenceCreateMock = vi.hoisted(() => vi.fn());
-const paymentGetMock = vi.hoisted(() => vi.fn());
-
-// Mockeamos el SDK de Mercado Pago: como el código hace "new Preference(...)"
-// y "new Payment(...)", simulamos esas clases devolviendo objetos con los
-// métodos .create()/.get() apuntando a los mocks de arriba, para poder
-// controlar sus respuestas en cada test.
-vi.mock("mercadopago", () => ({
-  Preference: vi.fn().mockImplementation(function () {
-    return { create: preferenceCreateMock };
-  }),
-  Payment: vi.fn().mockImplementation(function () {
-    return { get: paymentGetMock };
-  }),
-}));
-
-vi.mock("../config/mercadopago", () => ({ default: {} }));
-
 vi.mock("../repositores/venta.repository");
 vi.mock("../repositores/producto.repository");
 vi.mock("../repositores/movimiento.repository");
@@ -72,7 +51,7 @@ describe("ventaService.iniciarVenta - EFECTIVO (venta directa)", () => {
     expect(ventaRepository.create).not.toHaveBeenCalled();
   });
 
-  it("completa la venta al instante, sin generar link de pago", async () => {
+  it("completa la venta al instante como COMPLETADA", async () => {
     vi.mocked(productoRepository.findById).mockResolvedValue(productoFalso);
     vi.mocked(productoRepository.updateMany).mockResolvedValue({ count: 1 } as any);
     vi.mocked(movimientoRepository.create).mockResolvedValue({} as any);
@@ -83,8 +62,6 @@ describe("ventaService.iniciarVenta - EFECTIVO (venta directa)", () => {
       detalles: [{ productoId: 1, cantidad: 2 }],
     }, 1, 1);
 
-    // La clave de este bloque: confirmar que NO se llamó a Mercado Pago
-    expect(preferenceCreateMock).not.toHaveBeenCalled();
     expect(resultado).toEqual({ ventaId: 10, initPoint: null });
 
     // La venta se crea directamente como COMPLETADA
@@ -92,156 +69,6 @@ describe("ventaService.iniciarVenta - EFECTIVO (venta directa)", () => {
       expect.objectContaining({ estado: "COMPLETADA" }),
       expect.anything()
     );
-  });
-});
-
-describe("ventaService.iniciarVenta - PEDIDO_DISTANCIA (Mercado Pago)", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("crea la venta, genera la preferencia y devuelve el link de pago", async () => {
-    vi.mocked(productoRepository.findById).mockResolvedValue(productoFalso);
-    vi.mocked(ventaRepository.create).mockResolvedValue({ id: 42 } as any);
-    vi.mocked(ventaRepository.update).mockResolvedValue({} as any);
-    preferenceCreateMock.mockResolvedValue({
-      id: "pref-abc",
-      init_point: "https://www.mercadopago.com/checkout/abc",
-    });
-
-    const resultado = await ventaService.iniciarVenta({
-      metodoPago: "PEDIDO_DISTANCIA",
-      detalles: [{ productoId: 1, cantidad: 1 }],
-    }, 1, 1);
-
-    // La preferencia se creó usando el id de la venta como referencia
-    expect(preferenceCreateMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        body: expect.objectContaining({ external_reference: "42" }),
-      })
-    );
-
-    // Se guarda el preferenceId en la venta para trazabilidad
-    expect(ventaRepository.update).toHaveBeenCalledWith(42, 1, {
-      mercadoPagoPreferenceId: "pref-abc",
-    });
-
-    expect(resultado).toEqual({
-      ventaId: 42,
-      initPoint: "https://www.mercadopago.com/checkout/abc",
-    });
-  });
-});
-
-describe("ventaService.confirmarPago", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("lanza BadRequestError si el pago no tiene external_reference válida", async () => {
-    paymentGetMock.mockResolvedValue({ external_reference: "no-es-numero" });
-
-    await expect(ventaService.confirmarPago("pay-1")).rejects.toThrow(BadRequestError);
-  });
-
-  it("lanza NotFoundError si la venta no existe", async () => {
-    paymentGetMock.mockResolvedValue({ external_reference: "42" });
-    vi.mocked(ventaRepository.findByIdGlobal).mockResolvedValue(null);
-
-    await expect(ventaService.confirmarPago("pay-1")).rejects.toThrow(NotFoundError);
-  });
-
-  it("no hace nada si la venta ya no está PENDIENTE (webhook duplicado)", async () => {
-    paymentGetMock.mockResolvedValue({ external_reference: "42", status: "approved" });
-    vi.mocked(ventaRepository.findByIdGlobal).mockResolvedValue({
-      id: 42,
-      comercioId: 1,
-      estado: "COMPLETADA", // ya procesada antes
-      detalles: [],
-    } as any);
-
-    await ventaService.confirmarPago("pay-1");
-
-    // No se vuelve a tocar stock ni a actualizar la venta (ni siquiera el claim)
-    expect(productoRepository.update).not.toHaveBeenCalled();
-    expect(productoRepository.updateMany).not.toHaveBeenCalled();
-    expect(ventaRepository.update).not.toHaveBeenCalled();
-    expect(ventaRepository.updateMany).not.toHaveBeenCalled();
-  });
-
-  it("con pago aprobado: reclama la transición, descuenta atómico y completa la venta", async () => {
-    paymentGetMock.mockResolvedValue({ id: "pay-1", external_reference: "42", status: "approved" });
-    vi.mocked(ventaRepository.findByIdGlobal).mockResolvedValue({
-      id: 42,
-      comercioId: 1,
-      estado: "PENDIENTE",
-      detalles: [{ productoId: 1, cantidad: 2 }],
-    } as any);
-    vi.mocked(productoRepository.findById).mockResolvedValue({ ...productoFalso, stock: 8 } as any); // post-descuento: 10 - 2
-    vi.mocked(ventaRepository.updateMany).mockResolvedValue({ count: 1 } as any);
-    vi.mocked(productoRepository.updateMany).mockResolvedValue({ count: 1 } as any);
-    vi.mocked(movimientoRepository.create).mockResolvedValue({} as any);
-
-    await ventaService.confirmarPago("pay-1");
-
-    // Claim condicional PENDIENTE → COMPLETADA con el paymentId, acotado al comercio
-    expect(ventaRepository.updateMany).toHaveBeenCalledWith(
-      { id: 42, comercioId: 1, estado: "PENDIENTE" },
-      { estado: "COMPLETADA", mercadoPagoPaymentId: "pay-1" },
-      expect.anything()
-    );
-    // Descuento atómico y condicional
-    expect(productoRepository.updateMany).toHaveBeenCalledWith(
-      { id: 1, comercioId: 1, stock: { gte: 2 } },
-      { stock: { decrement: 2 } },
-      expect.anything()
-    );
-    // Movimiento con valores post-escritura: anterior 10, nuevo 8
-    expect(movimientoRepository.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tipo: "SALIDA",
-        cantidad: 2,
-        stockAnterior: 10,
-        stockNuevo: 8,
-      }),
-      expect.anything()
-    );
-    expect(productoRepository.update).not.toHaveBeenCalled();
-  });
-
-  it("con pago aprobado sin stock: aborta con 409 sin completar ni crear movimiento", async () => {
-    paymentGetMock.mockResolvedValue({ id: "pay-1", external_reference: "42", status: "approved" });
-    vi.mocked(ventaRepository.findByIdGlobal).mockResolvedValue({
-      id: 42,
-      comercioId: 1,
-      estado: "PENDIENTE",
-      detalles: [{ productoId: 1, cantidad: 2 }],
-    } as any);
-    vi.mocked(ventaRepository.updateMany).mockResolvedValue({ count: 1 } as any);
-    vi.mocked(productoRepository.updateMany).mockResolvedValue({ count: 0 } as any);
-    vi.mocked(productoRepository.findById).mockResolvedValue({ ...productoFalso, stock: 1 } as any);
-
-    await expect(ventaService.confirmarPago("pay-1")).rejects.toThrow(ConflictError);
-    expect(movimientoRepository.create).not.toHaveBeenCalled();
-  });
-
-  it("con pago rechazado: marca la venta como RECHAZADA sin tocar stock", async () => {
-    paymentGetMock.mockResolvedValue({ id: "pay-2", external_reference: "42", status: "rejected" });
-    vi.mocked(ventaRepository.findByIdGlobal).mockResolvedValue({
-      id: 42,
-      comercioId: 1,
-      estado: "PENDIENTE",
-      detalles: [{ productoId: 1, cantidad: 2 }],
-    } as any);
-    vi.mocked(ventaRepository.update).mockResolvedValue({ id: 42, estado: "RECHAZADA" } as any);
-
-    await ventaService.confirmarPago("pay-2");
-
-    expect(productoRepository.update).not.toHaveBeenCalled();
-    expect(ventaRepository.update).toHaveBeenCalledWith(42, 1, {
-      estado: "RECHAZADA",
-      mercadoPagoPaymentId: "pay-2",
-    });
   });
 });
 
@@ -518,95 +345,9 @@ describe("ventaService.anular", () => {
   });
 });
 
-describe("webhook repetido: no descuenta stock dos veces", () => {
+describe("venta directa concurrente", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  it("segunda notificación approved sobre venta ya COMPLETADA no toca stock", async () => {
-    let estado = "PENDIENTE";
-    paymentGetMock.mockResolvedValue({
-      id: "pay-1",
-      external_reference: "7",
-      status: "approved",
-    });
-    vi.mocked(ventaRepository.findByIdGlobal).mockImplementation(((id: number) =>
-      Promise.resolve(
-        id === 7
-          ? { id: 7, comercioId: 1, estado, detalles: [{ productoId: 1, cantidad: 2 }] }
-          : { ...productoFalso, stock: 8 }
-      )) as any);
-    vi.mocked(ventaRepository.updateMany).mockImplementation((async () => {
-      estado = "COMPLETADA";
-      return { count: 1 };
-    }) as any);
-    vi.mocked(productoRepository.updateMany).mockResolvedValue({ count: 1 } as any);
-    vi.mocked(movimientoRepository.create).mockResolvedValue({} as any);
-
-    await ventaService.confirmarPago("pay-1");
-    await ventaService.confirmarPago("pay-1");
-
-    expect(paymentGetMock).toHaveBeenCalledTimes(2);
-    // Un solo claim, un solo descuento, un solo movimiento SALIDA
-    expect(ventaRepository.updateMany).toHaveBeenCalledTimes(1);
-    expect(productoRepository.updateMany).toHaveBeenCalledTimes(1);
-    expect(movimientoRepository.create).toHaveBeenCalledTimes(1);
-    expect(productoRepository.update).not.toHaveBeenCalled();
-  });
-
-  it("dos webhooks simultáneos para la misma venta: un solo descuento", async () => {
-    let estado = "PENDIENTE";
-    paymentGetMock.mockResolvedValue({
-      id: "pay-9",
-      external_reference: "9",
-      status: "approved",
-    });
-    vi.mocked(ventaRepository.findByIdGlobal).mockImplementation(((id: number) =>
-      Promise.resolve(
-        id === 9
-          ? { id: 9, comercioId: 1, estado, detalles: [{ productoId: 1, cantidad: 2 }] }
-          : { ...productoFalso, stock: 8 }
-      )) as any);
-    // Solo el primer claim concurrente es concedido (como en PG con row lock)
-    vi.mocked(ventaRepository.updateMany).mockImplementation((async (where: any) => {
-      if (where?.estado === "PENDIENTE" && estado === "PENDIENTE") {
-        estado = "COMPLETADA";
-        return { count: 1 };
-      }
-      return { count: 0 };
-    }) as any);
-    vi.mocked(productoRepository.updateMany).mockResolvedValue({ count: 1 } as any);
-    vi.mocked(movimientoRepository.create).mockResolvedValue({} as any);
-
-    const [r1, r2] = await Promise.allSettled([
-      ventaService.confirmarPago("pay-9"),
-      ventaService.confirmarPago("pay-9"),
-    ]);
-
-    expect(r1.status).toBe("fulfilled");
-    expect(r2.status).toBe("fulfilled");
-    expect(productoRepository.updateMany).toHaveBeenCalledTimes(1);
-    expect(movimientoRepository.create).toHaveBeenCalledTimes(1);
-  });
-
-  it("fallo posterior al claim: no queda completada parcial ni movimientos huérfanos", async () => {
-    paymentGetMock.mockResolvedValue({ id: "pay-3", external_reference: "11", status: "approved" });
-    vi.mocked(ventaRepository.findByIdGlobal).mockResolvedValue({
-      id: 11,
-      comercioId: 1,
-      estado: "PENDIENTE",
-      detalles: [{ productoId: 1, cantidad: 2 }],
-    } as any);
-    vi.mocked(ventaRepository.updateMany).mockResolvedValue({ count: 1 } as any);
-    vi.mocked(productoRepository.updateMany).mockResolvedValue({ count: 1 } as any);
-    vi.mocked(productoRepository.findById).mockResolvedValue({ ...productoFalso, stock: 8 } as any);
-    vi.mocked(movimientoRepository.create).mockRejectedValue(new Error("fallo de BD"));
-
-    await expect(ventaService.confirmarPago("pay-3")).rejects.toThrow("fallo de BD");
-    // La atomicidad real la da el rollback del tx (incluye el claim); acá se
-    // verifica que el error propaga y no hay escrituras fuera de la transacción.
-    expect(ventaRepository.update).not.toHaveBeenCalled();
-    expect(ventaRepository.delete).not.toHaveBeenCalled();
   });
 
   it("dos ventas directas concurrentes no generan stock negativo ni pierden updates", async () => {

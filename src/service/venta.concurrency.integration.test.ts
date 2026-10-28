@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeAll, afterAll, afterEach } from "vitest";
 
 // Pruebas de integración con PostgreSQL REAL (sin mocks de BD) para la
-// concurrencia de ventas y pagos. Verifican el aislamiento transaccional que
-// los tests unitarios (con `$transaction` falseado) no pueden probar.
+// concurrencia de ventas. Verifican el aislamiento transaccional que los tests
+// unitarios (con `$transaction` falseado) no pueden probar.
 //
 // ACTIVACIÓN: solo corren si existe TEST_DATABASE_URL apuntando a una base
 // EXCLUSIVA y desechable de tests. Sin ella, el archivo se saltea.
@@ -11,8 +11,7 @@ import { describe, it, expect, vi, beforeAll, afterAll, afterEach } from "vitest
 // PREPARACIÓN (la ejecuta el operador, no este archivo):
 //   TEST_DATABASE_URL="postgresql://..." npx prisma migrate deploy
 //   TEST_DATABASE_URL="postgresql://..." npm test
-// Solo se mockea el SDK externo de Mercado Pago (red); Prisma, servicios y
-// repositorios son 100% reales.
+// Prisma, servicios y repositorios son 100% reales.
 
 const TEST_URL = process.env.TEST_DATABASE_URL;
 const ES_BASE_EXCLUSIVA =
@@ -20,20 +19,6 @@ const ES_BASE_EXCLUSIVA =
   TEST_URL !== process.env.DATABASE_URL &&
   !/neon\.tech/i.test(TEST_URL) &&
   !/inventariobd/i.test(TEST_URL);
-
-const paymentGetMock = vi.hoisted(() => vi.fn());
-const preferenceCreateMock = vi.hoisted(() => vi.fn());
-
-vi.mock("mercadopago", () => ({
-  Preference: vi.fn().mockImplementation(function () {
-    return { create: preferenceCreateMock };
-  }),
-  Payment: vi.fn().mockImplementation(function () {
-    return { get: paymentGetMock };
-  }),
-}));
-
-vi.mock("../config/mercadopago", () => ({ default: {} }));
 
 // En el test de rollback se fuerza un fallo dentro del tx mockeando SOLO la
 // creación del movimiento (el resto del repositorio sigue siendo el real).
@@ -50,7 +35,7 @@ vi.mock("../repositores/movimiento.repository", async (importOriginal) => {
 type VentaService = typeof import("./venta.service.js")["ventaService"];
 type Prisma = typeof import("../config/prisma.js")["prisma"];
 
-describe.skipIf(!ES_BASE_EXCLUSIVA)("integración PG: concurrencia de ventas y pagos", () => {
+describe.skipIf(!ES_BASE_EXCLUSIVA)("integración PG: concurrencia de ventas", () => {
   let ventaService!: VentaService;
   let prisma!: Prisma;
   let movimientoRepository!: typeof import("../repositores/movimiento.repository.js")["movimientoRepository"];
@@ -66,7 +51,6 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)("integración PG: concurrencia de ventas y p
     ventaService = (await import("./venta.service.js")).ventaService;
     prisma = (await import("../config/prisma.js")).prisma;
     movimientoRepository = (await import("../repositores/movimiento.repository.js")).movimientoRepository;
-    preferenceCreateMock.mockResolvedValue({ id: "pref-test", init_point: "http://test/pay" });
     // Warm-up del pool y del camino transaccional: la primera conexión TCP
     // contra PG (Docker NAT en frío) es la más lenta y no debe pagarse dentro
     // de un test con timeout. No cambia ninguna aserción.
@@ -90,14 +74,24 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)("integración PG: concurrencia de ventas y p
     });
     vendedorId = vendedor.id;
     creados.usuarios.push(vendedor.id);
-  });
+  }, 30000);
 
   afterAll(async () => {
     // El comercio y vendedor propios se borran al final (los usan todos los tests).
-    await prisma.usuario.deleteMany({ where: { id: { in: creados.usuarios.splice(0) } } });
-    await prisma.comercio.deleteMany({ where: { id: { in: creados.comercios.splice(0) } } });
+    // Se borra por comercioId además de la lista: cubre un fallo/timeout durante
+    // el beforeAll que haya dejado filas creadas sin registrar en `creados`.
+    const comercios = creados.comercios.splice(0);
+    await prisma.usuario.deleteMany({
+      where: {
+        OR: [
+          { id: { in: creados.usuarios.splice(0) } },
+          { comercioId: { in: comercios } },
+        ],
+      },
+    });
+    await prisma.comercio.deleteMany({ where: { id: { in: comercios } } });
     await prisma.$disconnect();
-  });
+  }, 30000);
 
   afterEach(async () => {
     // Limpieza solo de datos propios, en orden inverso a las FK.
@@ -123,7 +117,6 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)("integración PG: concurrencia de ventas y p
     }
     if (cids.length) await prisma.categoria.deleteMany({ where: { id: { in: cids } } });
     vi.clearAllMocks();
-    preferenceCreateMock.mockResolvedValue({ id: "pref-test", init_point: "http://test/pay" });
   });
 
   const crearProducto = async (stock: number, tag: string) => {
@@ -154,27 +147,6 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)("integración PG: concurrencia de ventas y p
   const entradasDe = (productoId: number) =>
     prisma.movimientoStock.count({ where: { productoId, tipo: "ENTRADA" } });
 
-  it("dos webhooks simultáneos: un solo descuento y una sola SALIDA", async () => {
-    const producto = await crearProducto(10, "wh");
-    const { ventaId } = await ventaService.iniciarVenta({
-      metodoPago: "PEDIDO_DISTANCIA",
-      detalles: [{ productoId: producto.id, cantidad: 2 }],
-    }, comercioId, vendedorId);
-    creados.ventas.push(ventaId);
-    paymentGetMock.mockResolvedValue({ id: "pay-1", external_reference: String(ventaId), status: "approved" });
-
-    const [r1, r2] = await Promise.allSettled([
-      ventaService.confirmarPago("pay-1"),
-      ventaService.confirmarPago("pay-1"),
-    ]);
-
-    expect(r1.status).toBe("fulfilled");
-    expect(r2.status).toBe("fulfilled");
-    expect(await stockDe(producto.id)).toBe(8);
-    expect(await salidasDe(producto.id)).toBe(1);
-    expect((await prisma.venta.findUniqueOrThrow({ where: { id: ventaId } })).estado).toBe("COMPLETADA");
-  });
-
   it("dos ventas concurrentes: sin negativo ni updates perdidos", async () => {
     const producto = await crearProducto(3, "conc");
     const armarDto = () => ({ metodoPago: "EFECTIVO" as const, detalles: [{ productoId: producto.id, cantidad: 2 }] });
@@ -195,19 +167,19 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)("integración PG: concurrencia de ventas y p
     expect(await salidasDe(producto.id)).toBe(1);
   });
 
-  it("fallo dentro del tx: sin cambios parciales (rollback incluye el claim)", async () => {
+  it("fallo dentro del tx: sin venta creada ni cambios de stock", async () => {
     const producto = await crearProducto(10, "rb");
-    const { ventaId } = await ventaService.iniciarVenta({
-      metodoPago: "PEDIDO_DISTANCIA",
-      detalles: [{ productoId: producto.id, cantidad: 2 }],
-    }, comercioId, vendedorId);
-    creados.ventas.push(ventaId);
-    paymentGetMock.mockResolvedValue({ id: "pay-9", external_reference: String(ventaId), status: "approved" });
+    const ventasAntes = await prisma.venta.count({ where: { comercioId } });
     vi.mocked(movimientoRepository.create).mockRejectedValueOnce(new Error("fallo de BD"));
 
-    await expect(ventaService.confirmarPago("pay-9")).rejects.toThrow("fallo de BD");
+    await expect(
+      ventaService.iniciarVenta({
+        metodoPago: "EFECTIVO",
+        detalles: [{ productoId: producto.id, cantidad: 2 }],
+      }, comercioId, vendedorId)
+    ).rejects.toThrow("fallo de BD");
 
-    expect((await prisma.venta.findUniqueOrThrow({ where: { id: ventaId } })).estado).toBe("PENDIENTE");
+    expect(await prisma.venta.count({ where: { comercioId } })).toBe(ventasAntes);
     expect(await stockDe(producto.id)).toBe(10);
     expect(await salidasDe(producto.id)).toBe(0);
   });
