@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { clienteService } from "../service/cliente.service";
 import { AuthRequest, requireComercio } from "../middlewares/auth.middleware";
+import { leerPaginacion } from "../utils/paginacion";
 
 export const clienteController = {
 
@@ -8,8 +9,7 @@ export const clienteController = {
   // Number(undefined) da NaN, por eso usamos "||" para caer en el valor
   // por defecto si no vino el parámetro o vino mal formado.
   getAll: async (req: Request, res: Response) => {
-    const page = Number(req.query.page) || 1;
-    const limit = Number(req.query.limit) || 10;
+    const { page, limit } = leerPaginacion(req.query);
 
     const resultado = await clienteService.getAll(requireComercio(req as AuthRequest), page, limit);
     res.status(200).json({

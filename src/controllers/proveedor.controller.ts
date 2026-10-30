@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { proveedorService } from "../service/proveedor.service";
 import { requireComercio } from "../middlewares/auth.middleware";
 import { BadRequestError } from "../utils/errors";
+import { leerPaginacion } from "../utils/paginacion";
 
 const parseId = (valor: unknown) => {
   const id = Number(valor);
@@ -14,8 +15,7 @@ const parseId = (valor: unknown) => {
 export const proveedorController = {
   getAll: async (req: Request, res: Response) => {
     const comercioId = requireComercio(req);
-    const page = Math.max(Number(req.query.page) || 1, 1);
-    const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 100);
+    const { page, limit } = leerPaginacion(req.query);
 
     const resultado = await proveedorService.getAll(comercioId, page, limit);
     res.status(200).json({
