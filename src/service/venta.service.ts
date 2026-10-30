@@ -156,7 +156,7 @@ export const ventaService = {
       );
     });
 
-    return { ventaId: venta.id, initPoint: null };
+    return { ventaId: venta.id };
   },
 
   // Modificación puntual de una venta PENDIENTE (ej: asignar cliente).

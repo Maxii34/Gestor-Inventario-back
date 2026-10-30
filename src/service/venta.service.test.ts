@@ -62,7 +62,7 @@ describe("ventaService.iniciarVenta - EFECTIVO (venta directa)", () => {
       detalles: [{ productoId: 1, cantidad: 2 }],
     }, 1, 1);
 
-    expect(resultado).toEqual({ ventaId: 10, initPoint: null });
+    expect(resultado).toEqual({ ventaId: 10 });
 
     // La venta se crea directamente como COMPLETADA
     expect(ventaRepository.create).toHaveBeenCalledWith(
