@@ -31,6 +31,11 @@ const JWT_SECRET = process.env.JWT_SECRET as string;
 const ACCESS_TOKEN_EXPIRES_IN = "1h"; // antes 8h, ahora vida corta porque hay refresh token
 const REFRESH_TOKEN_DIAS = 7;
 
+// Los refresh tokens se guardan hasheados: si se filtra la base, los valores
+// almacenados no sirven para autenticarse.
+const hashearToken = (token: string) =>
+  crypto.createHash("sha256").update(token).digest("hex");
+
 // Genera el access token (JWT firmado, de vida corta). Incluye el comercio para
 // que ningún endpoint opere sin scope: el comercioId nunca viene del cliente.
 const generarAccessToken = (usuario: { id: number; rol: RolUsuario; comercioId: number }) =>
@@ -44,7 +49,7 @@ const generarAccessToken = (usuario: { id: number; rol: RolUsuario; comercioId: 
 const generarRefreshToken = async (usuarioId: number) => {
   const token = crypto.randomBytes(40).toString("hex");
   const expiraEn = new Date(Date.now() + REFRESH_TOKEN_DIAS * 24 * 60 * 60 * 1000);
-  await refreshTokenRepository.create(usuarioId, token, expiraEn);
+  await refreshTokenRepository.create(usuarioId, hashearToken(token), expiraEn);
   return token;
 };
 
@@ -123,7 +128,9 @@ export const usuarioService = {
   // rotando (revocando el viejo y emitiendo uno nuevo) por seguridad.
   // El comercioId del token nuevo se re-deriva del usuario, nunca del pedido.
   refresh: async (refreshTokenRecibido: string) => {
-    const registrado = await refreshTokenRepository.findByToken(refreshTokenRecibido);
+    const registrado = await refreshTokenRepository.findByToken(
+      hashearToken(refreshTokenRecibido)
+    );
 
     if (!registrado || registrado.revocado || registrado.expiraEn < new Date()) {
       throw new UnauthorizedError("Refresh token inválido o expirado");
@@ -152,7 +159,9 @@ export const usuarioService = {
 
   // revoca el refresh token recibido
   logout: async (refreshTokenRecibido: string) => {
-    const registrado = await refreshTokenRepository.findByToken(refreshTokenRecibido);
+    const registrado = await refreshTokenRepository.findByToken(
+      hashearToken(refreshTokenRecibido)
+    );
     if (registrado) {
       await refreshTokenRepository.revocar(registrado.id, registrado.usuarioId);
     }

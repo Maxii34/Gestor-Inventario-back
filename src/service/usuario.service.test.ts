@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 import { usuarioService } from "./usuario.service";
 import { usuarioRepository } from "../repositores/usuario.repository";
 import { refreshTokenRepository } from "../repositores/refreshToken.repository";
@@ -305,5 +306,54 @@ describe("usuarioService.delete", () => {
     await usuarioService.delete(3, 1);
 
     expect(refreshTokenRepository.revocarTodosDeUsuario).toHaveBeenCalledWith(3);
+  });
+});
+
+describe("refresh tokens guardados como hash", () => {
+  const sha256 = (token: string) =>
+    crypto.createHash("sha256").update(token).digest("hex");
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("login guarda un hash distinto del token devuelto", async () => {
+    vi.mocked(comercioRepository.findBySlug).mockResolvedValue(COMERCIO);
+    vi.mocked(usuarioRepository.findByEmailAndComercio).mockResolvedValue(usuarioFalso);
+    vi.mocked(bcrypt.compare).mockResolvedValue(true as never);
+    vi.mocked(jwt.sign).mockReturnValue("access-token" as never);
+    vi.mocked(refreshTokenRepository.create).mockResolvedValue({} as any);
+
+    const resultado = await usuarioService.login({
+      slug: "kiosco",
+      email: "admin@test.com",
+      password: "correcta",
+    });
+
+    const guardado = vi.mocked(refreshTokenRepository.create).mock.calls[0][1];
+    expect(guardado).not.toBe(resultado.refreshToken);
+    expect(guardado).toBe(sha256(resultado.refreshToken));
+  });
+
+  it("refresh busca por el hash del token en claro", async () => {
+    vi.mocked(refreshTokenRepository.findByToken).mockResolvedValue(null);
+
+    await expect(usuarioService.refresh("token-en-claro")).rejects.toThrow(
+      UnauthorizedError
+    );
+
+    expect(refreshTokenRepository.findByToken).toHaveBeenCalledWith(
+      sha256("token-en-claro")
+    );
+  });
+
+  it("logout busca por el hash del token en claro", async () => {
+    vi.mocked(refreshTokenRepository.findByToken).mockResolvedValue(null);
+
+    await usuarioService.logout("token-en-claro");
+
+    expect(refreshTokenRepository.findByToken).toHaveBeenCalledWith(
+      sha256("token-en-claro")
+    );
   });
 });
