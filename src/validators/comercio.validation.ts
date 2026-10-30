@@ -11,7 +11,13 @@ export const registrarComercioSchema = z.object({
     .optional(),
   adminNombre: z.string().trim().min(1, "El nombre del administrador es obligatorio").max(120),
   adminEmail: z.email("El email no es válido"),
-  adminPassword: z.string().min(6, "La contraseña debe tener al menos 6 caracteres"),
+  adminPassword: z
+    .string()
+    .min(6, "La contraseña debe tener al menos 6 caracteres")
+    .refine(
+      (p) => Buffer.byteLength(p, "utf8") <= 72,
+      "La contraseña es demasiado larga (máximo 72 bytes)"
+    ),
 }).strict();
 
 export type RegistrarComercioInput = z.infer<typeof registrarComercioSchema>;

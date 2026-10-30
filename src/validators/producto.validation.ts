@@ -20,7 +20,10 @@ export const productoSchema = z.object({
     .number({ error: "El precio de venta es obligatorio" })
     .positive("El precio de venta debe ser mayor a 0"),
 
-  stock: z.number().int().nonnegative().optional(),
+  stock: z
+    .number({ error: "El stock es obligatorio" })
+    .int("El stock debe ser un número entero")
+    .nonnegative("El stock no puede ser negativo"),
   stockMinimo: z.number().int().nonnegative().optional(),
   categoriaId: z.number({ error: "La categoría es obligatoria" }),
 });
