@@ -592,6 +592,47 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)("integración HTTP: aislamiento entre comerc
   });
 
   // ------------------------------------------------------------------ 9
+  describe("integridad referencial y paginación", () => {
+    it("borrar una categoría de B con productos → 409", async () => {
+      const categoriaId = await crear("/categorias", B.token, {
+        nombre: `Integridad-${sufijo}`,
+      });
+      await crear("/productos", B.token, {
+        nombre: `Producto integridad ${sufijo}`,
+        precioCompra: 10,
+        precioVenta: 20,
+        stock: 1,
+        categoriaId,
+      });
+
+      const res = await llamar("delete", `/categorias/${categoriaId}`, B.token);
+
+      expect(res.status, JSON.stringify(res.body)).toBe(409);
+    });
+
+    it("borrar un producto de B con movimientos y ventas → 409", async () => {
+      const res = await llamar("delete", `/productos/${B.productoId}`, B.token);
+
+      expect(res.status, JSON.stringify(res.body)).toBe(409);
+    });
+
+    it("GET /productos?limit=100000 acota el límite a 100", async () => {
+      const res = await llamar("get", "/productos?limit=100000", B.token);
+
+      expect(res.status).toBe(200);
+      expect(res.body.meta.limit).toBe(100);
+    });
+
+    it("GET /productos con page y limit inválidos usa los defaults", async () => {
+      const res = await llamar("get", "/productos?page=-5&limit=abc", B.token);
+
+      expect(res.status).toBe(200);
+      expect(res.body.meta.page).toBe(1);
+      expect(res.body.meta.limit).toBe(10);
+    });
+  });
+
+  // ------------------------------------------------------------------ 10
   describe("invariante final", () => {
     it("tras todos los ataques, lo de A es exactamente igual que al empezar", async () => {
       const ahora = await leerEstadoA();
