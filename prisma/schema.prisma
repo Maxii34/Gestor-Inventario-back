@@ -14,10 +14,14 @@ datasource db {
 }
 
 model Comercio {
-  id     Int     @id @default(autoincrement())
-  nombre String
-  slug   String  @unique
-  activo Boolean @default(true)
+  id               Int       @id @default(autoincrement())
+  nombre           String
+  slug             String    @unique
+  activo           Boolean   @default(true)
+  plan             Plan      @default(PRUEBA)
+  accesoHasta      DateTime?
+  motivoSuspension String?
+  ultimoLogin      DateTime?
 
   categorias  Categoria[]
   productos   Producto[]
@@ -27,9 +31,13 @@ model Comercio {
   ventas      Venta[]
   detalles    DetalleVenta[]
   usuarios    Usuario[]
+  pagos       Pago[]
+  auditorias  AuditoriaPlataforma[]
 
   fechaCreacion      DateTime @default(now())
   fechaActualizacion DateTime @updatedAt
+
+  @@index([accesoHasta])
 }
 
 model Categoria {
@@ -227,6 +235,82 @@ model RefreshToken {
   fechaCreacion DateTime @default(now())
 
   @@index([usuarioId])
+}
+
+model Superadmin {
+  id       Int     @id @default(autoincrement())
+  nombre   String
+  email    String  @unique
+  password String
+  activo   Boolean @default(true)
+
+  auditorias AuditoriaPlataforma[]
+  pagos      Pago[]
+
+  fechaCreacion      DateTime @default(now())
+  fechaActualizacion DateTime @updatedAt
+}
+
+model Pago {
+  id               Int         @id @default(autoincrement())
+  monto            Decimal     @db.Decimal(12, 2)
+  moneda           String      @default("ARS")
+  metodo           MetodoCobro
+  referencia       String?
+  nota             String?
+  plan             Plan
+  mesesAcreditados Int
+  accesoDesde      DateTime
+  accesoHasta      DateTime
+
+  comercioId Int
+  comercio   Comercio @relation(fields: [comercioId], references: [id], onDelete: Restrict)
+
+  registradoPorId Int
+  registradoPor   Superadmin @relation(fields: [registradoPorId], references: [id], onDelete: Restrict)
+
+  fecha DateTime @default(now())
+
+  @@index([comercioId, fecha])
+}
+
+model AuditoriaPlataforma {
+  id      Int              @id @default(autoincrement())
+  accion  AccionPlataforma
+  detalle Json?
+  ip      String?
+
+  superadminId Int
+  superadmin   Superadmin @relation(fields: [superadminId], references: [id], onDelete: Restrict)
+
+  comercioId Int?
+  comercio   Comercio? @relation(fields: [comercioId], references: [id], onDelete: Restrict)
+
+  fecha DateTime @default(now())
+
+  @@index([comercioId, fecha])
+  @@index([superadminId, fecha])
+}
+
+enum Plan {
+  PRUEBA
+  MENSUAL
+  TRIMESTRAL
+}
+
+enum MetodoCobro {
+  TRANSFERENCIA
+  EFECTIVO
+  OTRO
+}
+
+enum AccionPlataforma {
+  CREAR_COMERCIO
+  SUSPENDER
+  REACTIVAR
+  EXTENDER_ACCESO
+  CAMBIAR_PLAN
+  REGISTRAR_PAGO
 }
 
 enum TipoMovimiento {
