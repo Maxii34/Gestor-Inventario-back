@@ -26,65 +26,67 @@ const leerArgumentos = (argv: string[]) => {
   return argumentos;
 };
 
-const leerPasswordOculta = (): Promise<string> => {
+const preguntar = (
+  rl: readline.Interface,
+  texto: string
+): Promise<string> =>
+  new Promise((resolve, reject) => {
+    rl.question(texto, (respuesta) => resolve(respuesta));
+    rl.once("error", reject);
+  });
+
+const leerPasswordInteractiva = async (): Promise<string> => {
   if (!process.stdin.isTTY) {
-    return Promise.reject(
-      new Error(
-        "SUPERADMIN_PASSWORD no está definida y no hay una terminal para pedirla"
-      )
+    throw new Error(
+      "SUPERADMIN_PASSWORD no está definida y no hay una terminal interactiva para pedirla"
     );
   }
 
-  return new Promise((resolve, reject) => {
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-      terminal: true,
-    });
-
-    // Impide que readline escriba los caracteres tipeados en la terminal.
-    (rl as unknown as { _writeToOutput: (texto: string) => void })._writeToOutput =
-      () => {};
-
-    process.stdout.write("Contraseña del superadmin: ");
-
-    rl.question("", (respuesta) => {
-      process.stdout.write("\n");
-      rl.close();
-      resolve(respuesta);
-    });
-
-    rl.on("error", (error) => {
-      rl.close();
-      reject(error);
-    });
+  // Sin raw mode: la terminal maneja la línea normalmente y no se oculta la
+  // entrada. La contraseña nunca se imprime por nuestra cuenta.
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    terminal: false,
   });
+
+  try {
+    const password = await preguntar(
+      rl,
+      "Contraseña del superadmin (no se verá lo que escribís): "
+    );
+    const confirmacion = await preguntar(rl, "Confirmá la contraseña: ");
+
+    if (password !== confirmacion) {
+      throw new Error("Las contraseñas no coinciden");
+    }
+
+    return password;
+  } finally {
+    rl.close();
+  }
 };
 
 const main = async () => {
   const { nombre, email } = leerArgumentos(process.argv.slice(2));
 
   if (!nombre || !email) {
-    console.error(
+    throw new Error(
       'Uso: npm run superadmin:crear -- --nombre "Nombre" --email "email@dominio.com"'
     );
-    process.exitCode = 1;
-    return;
   }
 
   const password =
-    process.env.SUPERADMIN_PASSWORD ?? (await leerPasswordOculta());
+    process.env.SUPERADMIN_PASSWORD ?? (await leerPasswordInteractiva());
 
   const superadmin = await crearSuperadmin({ nombre, email, password });
 
-  console.log(
-    `Superadmin creado: id=${superadmin.id} nombre=${superadmin.nombre} email=${superadmin.email}`
-  );
+  console.log(`Superadmin creado: ${superadmin.email}`);
 };
 
 main()
   .catch((error) => {
-    console.error(error instanceof Error ? error.message : error);
+    console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
   })
   .finally(async () => {
