@@ -18,6 +18,18 @@ export const loginLimiter = rateLimit({
   message: mensaje("Demasiados intentos de inicio de sesión. Probá de nuevo en 5 minutos."),
 });
 
+// Login de plataforma: mismo criterio que el login de comercio, pero con su
+// propio contador para que un intento de fuerza bruta contra el superadmin no
+// consuma el cupo de los usuarios de negocio (ni al revés).
+export const plataformaLoginLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  limit: 5,
+  skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: mensaje("Demasiados intentos de inicio de sesión. Probá de nuevo en 5 minutos."),
+});
+
 // Alta de comercios: es el único endpoint público de escritura (crea filas y
 // calcula bcrypt), así que es el más caro de abusar.
 export const registroLimiter = rateLimit({

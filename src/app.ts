@@ -13,6 +13,7 @@ import { generalLimiter } from "./middlewares/rateLimit";
 import estadisticaRoutes from "./routes/estadistica.routes";
 import comercioRoutes from "./routes/comercio.routes";
 import proveedorRoutes from "./routes/proveedor.routes";
+import plataformaRoutes from "./routes/plataforma.routes";
 
 const app = express();
 
@@ -59,6 +60,7 @@ app.use("/ventas", ventaRoutes);
 app.use("/usuarios", usuarioRoutes);
 app.use("/estadisticas", estadisticaRoutes);
 app.use("/comercios", comercioRoutes);
+app.use("/plataforma", plataformaRoutes);
 
 // Cualquier error lanzado dentro de un controller async cae acá.
 app.use(errorHandler);
