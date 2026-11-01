@@ -1,11 +1,19 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import { Plan, Prisma } from "../generated/prisma/client";
+import { prisma } from "../config/prisma";
+import { AccionPlataforma, MetodoCobro, Plan, Prisma } from "../generated/prisma/client";
 import { superadminRepository } from "../repositores/superadmin.repository";
 import { plataformaRepository } from "../repositores/plataforma.repository";
-import { estadoSuscripcion, EstadoSuscripcion } from "../utils/suscripcion";
+import { comercioService } from "./comercio.service";
+import {
+  calcularNuevoAcceso,
+  DIAS_PRUEBA,
+  estadoSuscripcion,
+  EstadoSuscripcion,
+} from "../utils/suscripcion";
 import {
   BadRequestError,
+  ConflictError,
   NotFoundError,
   UnauthorizedError,
 } from "../utils/errors";
@@ -21,6 +29,24 @@ export interface ListarComerciosDTO {
   limit: number;
   estado?: string;
   q?: string;
+}
+
+export interface CrearComercioPlataformaDTO {
+  nombre: string;
+  slug?: string;
+  adminNombre: string;
+  adminEmail: string;
+  adminPassword: string;
+  dias?: number;
+}
+
+export interface RegistrarPagoDTO {
+  plan: "MENSUAL" | "TRIMESTRAL";
+  meses: number;
+  monto: number;
+  metodo: MetodoCobro;
+  referencia?: string;
+  nota?: string;
 }
 
 interface ComercioConConteos {
@@ -44,6 +70,26 @@ const ESTADOS_SUSCRIPCION: EstadoSuscripcion[] = [
   "EN_GRACIA",
   "VENCIDA",
 ];
+
+const snapshotComercio = (comercio: {
+  id: number;
+  nombre: string;
+  slug: string;
+  activo: boolean;
+  plan: Plan;
+  accesoHasta: Date | null;
+  motivoSuspension: string | null;
+}) => ({
+  id: comercio.id,
+  nombre: comercio.nombre,
+  slug: comercio.slug,
+  activo: comercio.activo,
+  plan: comercio.plan,
+  accesoHasta: comercio.accesoHasta
+    ? comercio.accesoHasta.toISOString()
+    : null,
+  motivoSuspension: comercio.motivoSuspension,
+});
 
 const mapearComercio = (comercio: ComercioConConteos, ahora: Date) => {
   const { estado, diasRestantes } = estadoSuscripcion(
@@ -171,8 +217,213 @@ const obtenerComercio = async (id: number) => {
   };
 };
 
+const crearComercio = async (
+  data: CrearComercioPlataformaDTO,
+  superadminId: number,
+  ip: string | null
+) => {
+  const ahora = new Date();
+
+  return prisma.$transaction(async (tx) => {
+    const resultado = await comercioService.registrar(
+      { ...data, dias: data.dias ?? DIAS_PRUEBA },
+      { tx, ahora, plan: "PRUEBA" }
+    );
+
+    await plataformaRepository.crearAuditoria(
+      {
+        accion: AccionPlataforma.CREAR_COMERCIO,
+        detalle: {
+          antes: null,
+          despues: snapshotComercio(resultado.comercio),
+        },
+        ip,
+        superadminId,
+        comercioId: resultado.comercio.id,
+      },
+      tx
+    );
+
+    return resultado;
+  });
+};
+
+const suspenderComercio = async (
+  id: number,
+  motivo: string,
+  superadminId: number,
+  ip: string | null
+) =>
+  prisma.$transaction(async (tx) => {
+    const comercio = await plataformaRepository.findComercioById(id, tx);
+    if (!comercio) {
+      throw new NotFoundError("Comercio no encontrado");
+    }
+    if (!comercio.activo) {
+      throw new ConflictError("El comercio ya está suspendido");
+    }
+
+    const cambio = await plataformaRepository.updateComercioCondicional(
+      { id, activo: true },
+      { activo: false, motivoSuspension: motivo },
+      tx
+    );
+    if (cambio.count === 0) {
+      throw new ConflictError("El comercio ya está suspendido");
+    }
+
+    await plataformaRepository.revocarRefreshTokensDeComercio(id, tx);
+
+    const actualizado = await plataformaRepository.findComercioById(id, tx);
+    if (!actualizado) {
+      throw new NotFoundError("Comercio no encontrado");
+    }
+
+    await plataformaRepository.crearAuditoria(
+      {
+        accion: AccionPlataforma.SUSPENDER,
+        detalle: {
+          antes: snapshotComercio(comercio),
+          despues: snapshotComercio(actualizado),
+        },
+        ip,
+        superadminId,
+        comercioId: id,
+      },
+      tx
+    );
+
+    return actualizado;
+  });
+
+const reactivarComercio = async (
+  id: number,
+  superadminId: number,
+  ip: string | null
+) =>
+  prisma.$transaction(async (tx) => {
+    const comercio = await plataformaRepository.findComercioById(id, tx);
+    if (!comercio) {
+      throw new NotFoundError("Comercio no encontrado");
+    }
+    if (comercio.activo) {
+      throw new ConflictError("El comercio ya está activo");
+    }
+
+    const cambio = await plataformaRepository.updateComercioCondicional(
+      { id, activo: false },
+      { activo: true, motivoSuspension: null },
+      tx
+    );
+    if (cambio.count === 0) {
+      throw new ConflictError("El comercio ya está activo");
+    }
+
+    const actualizado = await plataformaRepository.findComercioById(id, tx);
+    if (!actualizado) {
+      throw new NotFoundError("Comercio no encontrado");
+    }
+
+    await plataformaRepository.crearAuditoria(
+      {
+        accion: AccionPlataforma.REACTIVAR,
+        detalle: {
+          antes: snapshotComercio(comercio),
+          despues: snapshotComercio(actualizado),
+        },
+        ip,
+        superadminId,
+        comercioId: id,
+      },
+      tx
+    );
+
+    return actualizado;
+  });
+
+const extenderAcceso = async (
+  id: number,
+  dias: number,
+  superadminId: number,
+  ip: string | null
+) =>
+  prisma.$transaction(async (tx) => {
+    const comercio = await plataformaRepository.findComercioById(id, tx);
+    if (!comercio) {
+      throw new NotFoundError("Comercio no encontrado");
+    }
+
+    const accesoHasta = calcularNuevoAcceso({
+      accesoHastaActual: comercio.accesoHasta,
+      ahora: new Date(),
+      dias,
+    });
+
+    const actualizado = await plataformaRepository.updateComercio(
+      id,
+      { accesoHasta },
+      tx
+    );
+
+    await plataformaRepository.crearAuditoria(
+      {
+        accion: AccionPlataforma.EXTENDER_ACCESO,
+        detalle: {
+          antes: snapshotComercio(comercio),
+          despues: snapshotComercio(actualizado),
+        },
+        ip,
+        superadminId,
+        comercioId: id,
+      },
+      tx
+    );
+
+    return actualizado;
+  });
+
+const cambiarPlan = async (
+  id: number,
+  plan: Plan,
+  superadminId: number,
+  ip: string | null
+) =>
+  prisma.$transaction(async (tx) => {
+    const comercio = await plataformaRepository.findComercioById(id, tx);
+    if (!comercio) {
+      throw new NotFoundError("Comercio no encontrado");
+    }
+
+    const actualizado = await plataformaRepository.updateComercio(
+      id,
+      { plan },
+      tx
+    );
+
+    await plataformaRepository.crearAuditoria(
+      {
+        accion: AccionPlataforma.CAMBIAR_PLAN,
+        detalle: {
+          antes: snapshotComercio(comercio),
+          despues: snapshotComercio(actualizado),
+        },
+        ip,
+        superadminId,
+        comercioId: id,
+      },
+      tx
+    );
+
+    return actualizado;
+  });
+
 export const plataformaService = {
   login,
   listarComercios,
   obtenerComercio,
+  crearComercio,
+  suspenderComercio,
+  reactivarComercio,
+  extenderAcceso,
+  cambiarPlan,
 };

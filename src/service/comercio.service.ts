@@ -1,8 +1,10 @@
 import bcrypt from "bcrypt";
 import { prisma } from "../config/prisma";
+import { Plan, Prisma } from "../generated/prisma/client";
 import { comercioRepository } from "../repositores/comercio.repository";
 import { usuarioRepository } from "../repositores/usuario.repository";
 import { ConflictError, BadRequestError, NotFoundError } from "../utils/errors";
+import { calcularNuevoAcceso, DIAS_PRUEBA } from "../utils/suscripcion";
 
 export interface RegistrarComercioDTO {
   nombre: string;
@@ -10,6 +12,13 @@ export interface RegistrarComercioDTO {
   adminNombre: string;
   adminEmail: string;
   adminPassword: string;
+  dias?: number;
+}
+
+export interface RegistrarComercioOpciones {
+  tx?: Prisma.TransactionClient;
+  ahora?: Date;
+  plan?: Plan;
 }
 
 // Convierte un nombre en slug: minúsculas, espacios a guiones, solo [a-z0-9-].
@@ -35,7 +44,10 @@ export const comercioService = {
   // Alta inicial: crea el comercio y su primer ADMIN en una transacción.
   // Es el único flujo que crea un usuario sin token previo, y nunca puede
   // crear administradores en comercios existentes ni asignar usuarios ajenos.
-  registrar: async (data: RegistrarComercioDTO) => {
+  registrar: async (
+    data: RegistrarComercioDTO,
+    opciones?: RegistrarComercioOpciones
+  ) => {
     const slug = normalizarSlug(data.slug ?? data.nombre);
     if (!slug) {
       throw new BadRequestError("No se pudo generar un identificador válido para el comercio");
@@ -48,6 +60,11 @@ export const comercioService = {
       throw new BadRequestError("El email del administrador es obligatorio");
     }
 
+    const dias = data.dias ?? DIAS_PRUEBA;
+    if (!Number.isInteger(dias) || dias < 1 || dias > 365) {
+      throw new BadRequestError("La cantidad de días debe estar entre 1 y 365");
+    }
+
     const existente = await comercioRepository.findBySlug(slug);
     if (existente) {
       throw new ConflictError("Ya existe un comercio con ese identificador");
@@ -55,9 +72,21 @@ export const comercioService = {
 
     const passwordHasheada = await bcrypt.hash(data.adminPassword, 10);
 
-    const resultado = await prisma.$transaction(async (tx) => {
+    const ahora = opciones?.ahora ?? new Date();
+    const accesoHasta = calcularNuevoAcceso({
+      accesoHastaActual: null,
+      ahora,
+      dias,
+    });
+
+    const ejecutar = async (tx: Prisma.TransactionClient) => {
       const comercio = await comercioRepository.create(
-        { nombre: data.nombre.trim(), slug },
+        {
+          nombre: data.nombre.trim(),
+          slug,
+          plan: opciones?.plan ?? "PRUEBA",
+          accesoHasta,
+        },
         tx
       );
 
@@ -73,7 +102,11 @@ export const comercioService = {
       );
 
       return { comercio, administrador };
-    });
+    };
+
+    const resultado = opciones?.tx
+      ? await ejecutar(opciones.tx)
+      : await prisma.$transaction(ejecutar);
 
     const { password: _omitida, ...administradorSinPassword } = resultado.administrador;
     return { comercio: resultado.comercio, administrador: administradorSinPassword };

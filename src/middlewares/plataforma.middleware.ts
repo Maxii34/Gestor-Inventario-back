@@ -53,3 +53,11 @@ export const verificarSuperadmin = async (
   req.superadmin = { id };
   next();
 };
+
+export const requireSuperadmin = (req: PlataformaRequest): number => {
+  const id = req.superadmin?.id;
+  if (id === undefined || !Number.isInteger(id) || id <= 0) {
+    throw new UnauthorizedError("Token inválido o expirado");
+  }
+  return id;
+};

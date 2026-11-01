@@ -12,4 +12,7 @@ export const comercioRepository = {
 
   create: (data: Prisma.ComercioCreateInput, tx?: PrismaTx) =>
     (tx ?? prisma).comercio.create({ data }),
+
+  update: (id: number, data: Prisma.ComercioUpdateInput, tx?: PrismaTx) =>
+    (tx ?? prisma).comercio.update({ where: { id }, data }),
 };
