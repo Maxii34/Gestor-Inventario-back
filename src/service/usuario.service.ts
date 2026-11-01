@@ -112,6 +112,8 @@ export const usuarioService = {
       throw new UnauthorizedError("Credenciales inválidas");
     }
 
+    await comercioRepository.update(comercio.id, { ultimoLogin: new Date() });
+
     const accessToken = generarAccessToken(usuario);
     const refreshToken = await generarRefreshToken(usuario.id);
 
