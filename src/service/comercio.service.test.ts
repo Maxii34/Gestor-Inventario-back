@@ -1,10 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import bcrypt from "bcrypt";
 import { comercioService } from "./comercio.service";
 import { comercioRepository } from "../repositores/comercio.repository";
 import { usuarioRepository } from "../repositores/usuario.repository";
 import { prisma } from "../config/prisma";
 import { NotFoundError, ConflictError, BadRequestError } from "../utils/errors";
+import { calcularNuevoAcceso, DIAS_PRUEBA } from "../utils/suscripcion";
 
 vi.mock("../repositores/comercio.repository");
 vi.mock("../repositores/usuario.repository");
@@ -84,5 +85,60 @@ describe("comercioService.registrar", () => {
 
     vi.mocked(comercioRepository.findBySlug).mockResolvedValue({ id: 1, activo: false } as any);
     await expect(comercioService.getBySlug("dado-de-baja")).rejects.toThrow(NotFoundError);
+  });
+
+  it("el registro público nace en PRUEBA con accesoHasta a DIAS_PRUEBA", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2025-11-10T15:00:00.000Z"));
+
+    try {
+      vi.mocked(comercioRepository.findBySlug).mockResolvedValue(null);
+      vi.mocked(bcrypt.hash).mockResolvedValue("hash" as never);
+      vi.mocked(comercioRepository.create).mockResolvedValue({
+        id: 5,
+        slug: "kiosco",
+      } as any);
+      vi.mocked(usuarioRepository.create).mockResolvedValue({
+        id: 1,
+        nombre: "Dueño",
+        email: "a@a.com",
+        password: "hash",
+        rol: "ADMIN",
+      } as any);
+
+      const esperado = calcularNuevoAcceso({
+        accesoHastaActual: null,
+        ahora: new Date(),
+        dias: DIAS_PRUEBA,
+      });
+
+      await comercioService.registrar({
+        nombre: "Kiosco",
+        adminNombre: "Dueño",
+        adminEmail: "a@a.com",
+        adminPassword: "secreta123",
+      });
+
+      expect(comercioRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ plan: "PRUEBA", accesoHasta: esperado }),
+        expect.anything()
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([0, 366, 1.5])("rechaza días fuera de 1..365 (%s)", async (dias) => {
+    await expect(
+      comercioService.registrar({
+        nombre: "Kiosco",
+        adminNombre: "Dueño",
+        adminEmail: "a@a.com",
+        adminPassword: "secreta123",
+        dias,
+      })
+    ).rejects.toThrow(BadRequestError);
+
+    expect(comercioRepository.create).not.toHaveBeenCalled();
   });
 });

@@ -1,0 +1,693 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+import { plataformaService } from "./plataforma.service";
+import { plataformaRepository } from "../repositores/plataforma.repository";
+import { superadminRepository } from "../repositores/superadmin.repository";
+import { comercioService } from "./comercio.service";
+import { prisma } from "../config/prisma";
+import {
+  BadRequestError,
+  ConflictError,
+  NotFoundError,
+  UnauthorizedError,
+} from "../utils/errors";
+import { calcularNuevoAcceso } from "../utils/suscripcion";
+
+vi.mock("../repositores/plataforma.repository");
+vi.mock("../repositores/superadmin.repository");
+vi.mock("./comercio.service");
+vi.mock("bcrypt");
+vi.mock("jsonwebtoken");
+const { txMock } = vi.hoisted(() => ({ txMock: {} }));
+vi.mock("../config/prisma", () => ({
+  prisma: {
+    $transaction: vi.fn((callback: (tx: unknown) => unknown) => callback(txMock)),
+  },
+}));
+
+const SUPERADMIN = {
+  id: 7,
+  nombre: "Dueño",
+  email: "super@test.com",
+  password: "hash",
+  activo: true,
+  fechaCreacion: new Date("2025-11-01T12:00:00.000Z"),
+  fechaActualizacion: new Date("2025-11-01T12:00:00.000Z"),
+};
+
+const COMERCIO = {
+  id: 5,
+  nombre: "Kiosco",
+  slug: "kiosco",
+  activo: true,
+  plan: "PRUEBA" as const,
+  accesoHasta: new Date("2025-11-15T02:59:59.999Z"),
+  motivoSuspension: null,
+  ultimoLogin: null,
+  fechaCreacion: new Date("2025-11-01T12:00:00.000Z"),
+  fechaActualizacion: new Date("2025-11-01T12:00:00.000Z"),
+  _count: { usuarios: 1, productos: 2, ventas: 3 },
+};
+
+const tx = txMock;
+
+describe("plataformaService.login", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.PLATAFORMA_JWT_SECRET = "secreto-plataforma-test";
+  });
+
+  afterEach(() => {
+    delete process.env.PLATAFORMA_JWT_SECRET;
+  });
+
+  it("normaliza el email, valida la contraseña y firma un token de plataforma", async () => {
+    vi.mocked(superadminRepository.findByEmail).mockResolvedValue(SUPERADMIN as never);
+    vi.mocked(bcrypt.compare).mockResolvedValue(true as never);
+    vi.mocked(jwt.sign).mockReturnValue("token-plataforma" as never);
+
+    const resultado = await plataformaService.login({
+      email: "  SUPER@Test.com ",
+      password: "secreta123",
+    });
+
+    expect(superadminRepository.findByEmail).toHaveBeenCalledWith("super@test.com");
+    expect(bcrypt.compare).toHaveBeenCalledWith("secreta123", "hash");
+    expect(jwt.sign).toHaveBeenCalledWith(
+      { sub: 7, tipo: "plataforma" },
+      "secreto-plataforma-test",
+      { expiresIn: "2h" }
+    );
+    expect(resultado.accessToken).toBe("token-plataforma");
+    expect(resultado.token).toBe("token-plataforma");
+    expect(resultado.superadmin).not.toHaveProperty("password");
+  });
+
+  it("rechaza un superadmin inactivo sin comparar la contraseña", async () => {
+    vi.mocked(superadminRepository.findByEmail).mockResolvedValue({
+      ...SUPERADMIN,
+      activo: false,
+    } as never);
+
+    await expect(
+      plataformaService.login({ email: "super@test.com", password: "secreta123" })
+    ).rejects.toThrow(UnauthorizedError);
+    expect(bcrypt.compare).not.toHaveBeenCalled();
+  });
+
+  it("rechaza una contraseña incorrecta con el error genérico", async () => {
+    vi.mocked(superadminRepository.findByEmail).mockResolvedValue(SUPERADMIN as never);
+    vi.mocked(bcrypt.compare).mockResolvedValue(false as never);
+
+    await expect(
+      plataformaService.login({ email: "super@test.com", password: "mala" })
+    ).rejects.toThrow("Credenciales inválidas");
+    expect(jwt.sign).not.toHaveBeenCalled();
+  });
+});
+
+describe("plataformaService.listarComercios", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2025-11-10T15:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("filtra por estado calculado en memoria y pagina el resultado", async () => {
+    const suspendido = {
+      ...COMERCIO,
+      id: 6,
+      activo: false,
+      accesoHasta: null,
+    };
+    vi.mocked(plataformaRepository.findComerciosTodos).mockResolvedValue([
+      COMERCIO,
+      suspendido,
+    ] as never);
+
+    const resultado = await plataformaService.listarComercios({
+      page: 1,
+      limit: 10,
+      estado: "VIGENTE",
+    });
+
+    expect(resultado.meta.total).toBe(1);
+    expect(resultado.data).toHaveLength(1);
+    expect(resultado.data[0].id).toBe(5);
+    expect(resultado.data[0].estadoSuscripcion).toBe("VIGENTE");
+    expect(resultado.data[0]._count).toEqual({
+      usuarios: 1,
+      productos: 2,
+      ventas: 3,
+    });
+  });
+
+  it("sin estado usa paginación SQL y devuelve solo conteos, no contenido de negocio", async () => {
+    vi.mocked(plataformaRepository.findComercios).mockResolvedValue([COMERCIO] as never);
+    vi.mocked(plataformaRepository.countComercios).mockResolvedValue(1);
+
+    const resultado = await plataformaService.listarComercios({
+      page: 1,
+      limit: 10,
+      q: "kiosco",
+    });
+
+    expect(plataformaRepository.findComercios).toHaveBeenCalledWith(
+      expect.objectContaining({
+        OR: expect.any(Array),
+      }),
+      0,
+      10
+    );
+    expect(resultado.data[0]).not.toHaveProperty("productos");
+    expect(resultado.data[0]).not.toHaveProperty("ventas");
+    expect(resultado.data[0].conteos).toEqual({
+      usuarios: 1,
+      productos: 2,
+      ventas: 3,
+    });
+  });
+
+  it("rechaza un estado desconocido con 400", async () => {
+    await expect(
+      plataformaService.listarComercios({
+        page: 1,
+        limit: 10,
+        estado: "NO_EXISTE",
+      })
+    ).rejects.toThrow(BadRequestError);
+  });
+});
+
+describe("plataformaService.obtenerComercio", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("lanza NotFoundError si el comercio no existe", async () => {
+    vi.mocked(plataformaRepository.findComercioDetalle).mockResolvedValue(null);
+
+    await expect(plataformaService.obtenerComercio(999)).rejects.toThrow(
+      NotFoundError
+    );
+  });
+
+  it("incluye pagos y auditorías sin contenido de negocio", async () => {
+    vi.mocked(plataformaRepository.findComercioDetalle).mockResolvedValue({
+      ...COMERCIO,
+      pagos: [{ id: 1 }],
+      auditorias: [{ id: 2 }],
+    } as never);
+
+    const resultado = await plataformaService.obtenerComercio(5);
+
+    expect(resultado.pagos).toEqual([{ id: 1 }]);
+    expect(resultado.auditorias).toEqual([{ id: 2 }]);
+    expect(resultado).not.toHaveProperty("productos");
+    expect(resultado).not.toHaveProperty("ventas");
+  });
+});
+
+describe("plataformaService.crearComercio", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("reutiliza comercioService.registrar y audita en la misma transacción", async () => {
+    vi.mocked(comercioService.registrar).mockResolvedValue({
+      comercio: COMERCIO as never,
+      administrador: { id: 1, email: "admin@test.com" } as never,
+    });
+    vi.mocked(plataformaRepository.crearAuditoria).mockResolvedValue({} as never);
+
+    const resultado = await plataformaService.crearComercio(
+      {
+        nombre: "Kiosco",
+        adminNombre: "Admin",
+        adminEmail: "admin@test.com",
+        adminPassword: "123456",
+        dias: 20,
+      },
+      7,
+      "127.0.0.1"
+    );
+
+    expect(prisma.$transaction).toHaveBeenCalledOnce();
+    expect(comercioService.registrar).toHaveBeenCalledWith(
+      expect.objectContaining({ dias: 20 }),
+      { tx, ahora: expect.any(Date), plan: "PRUEBA" }
+    );
+    expect(plataformaRepository.crearAuditoria).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accion: "CREAR_COMERCIO",
+        detalle: { antes: null, despues: expect.objectContaining({ id: 5 }) },
+        ip: "127.0.0.1",
+        superadminId: 7,
+        comercioId: 5,
+      }),
+      tx
+    );
+    expect(resultado.comercio.id).toBe(5);
+  });
+});
+
+describe("plataformaService.suspenderComercio / reactivarComercio", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("suspende, revoca refresh tokens y audita antes/después", async () => {
+    const suspendido = {
+      ...COMERCIO,
+      activo: false,
+      motivoSuspension: "impago",
+    };
+    vi.mocked(plataformaRepository.findComercioById)
+      .mockResolvedValueOnce(COMERCIO as never)
+      .mockResolvedValueOnce(suspendido as never);
+    vi.mocked(plataformaRepository.updateComercioCondicional).mockResolvedValue({
+      count: 1,
+    } as never);
+    vi.mocked(plataformaRepository.revocarRefreshTokensDeComercio).mockResolvedValue({
+      count: 2,
+    } as never);
+    vi.mocked(plataformaRepository.crearAuditoria).mockResolvedValue({} as never);
+
+    const resultado = await plataformaService.suspenderComercio(
+      5,
+      "impago",
+      7,
+      "127.0.0.1"
+    );
+
+    expect(plataformaRepository.updateComercioCondicional).toHaveBeenCalledWith(
+      { id: 5, activo: true },
+      { activo: false, motivoSuspension: "impago" },
+      tx
+    );
+    expect(plataformaRepository.revocarRefreshTokensDeComercio).toHaveBeenCalledWith(
+      5,
+      tx
+    );
+    expect(plataformaRepository.crearAuditoria).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accion: "SUSPENDER",
+        detalle: {
+          antes: expect.objectContaining({ activo: true }),
+          despues: expect.objectContaining({ activo: false }),
+        },
+      }),
+      tx
+    );
+    expect(resultado.activo).toBe(false);
+  });
+
+  it("rechaza suspender un comercio ya suspendido sin tocar tokens", async () => {
+    vi.mocked(plataformaRepository.findComercioById).mockResolvedValue({
+      ...COMERCIO,
+      activo: false,
+    } as never);
+
+    await expect(
+      plataformaService.suspenderComercio(5, "otra", 7, null)
+    ).rejects.toThrow(ConflictError);
+    expect(plataformaRepository.revocarRefreshTokensDeComercio).not.toHaveBeenCalled();
+  });
+
+  it("si otra operación cambió el comercio, responde 409 sin revocar tokens", async () => {
+    vi.mocked(plataformaRepository.findComercioById).mockResolvedValue(COMERCIO as never);
+    vi.mocked(plataformaRepository.updateComercioCondicional).mockResolvedValue({
+      count: 0,
+    } as never);
+
+    await expect(
+      plataformaService.suspenderComercio(5, "impago", 7, null)
+    ).rejects.toThrow(ConflictError);
+    expect(plataformaRepository.revocarRefreshTokensDeComercio).not.toHaveBeenCalled();
+  });
+
+  it("reactiva un comercio suspendido y audita", async () => {
+    const suspendido = {
+      ...COMERCIO,
+      activo: false,
+      motivoSuspension: "impago",
+    };
+    const reactivado = { ...COMERCIO, activo: true, motivoSuspension: null };
+    vi.mocked(plataformaRepository.findComercioById)
+      .mockResolvedValueOnce(suspendido as never)
+      .mockResolvedValueOnce(reactivado as never);
+    vi.mocked(plataformaRepository.updateComercioCondicional).mockResolvedValue({
+      count: 1,
+    } as never);
+    vi.mocked(plataformaRepository.crearAuditoria).mockResolvedValue({} as never);
+
+    const resultado = await plataformaService.reactivarComercio(5, 7, null);
+
+    expect(plataformaRepository.updateComercioCondicional).toHaveBeenCalledWith(
+      { id: 5, activo: false },
+      { activo: true, motivoSuspension: null },
+      tx
+    );
+    expect(plataformaRepository.crearAuditoria).toHaveBeenCalledWith(
+      expect.objectContaining({ accion: "REACTIVAR" }),
+      tx
+    );
+    expect(resultado.activo).toBe(true);
+  });
+
+  it("rechaza reactivar un comercio ya activo", async () => {
+    vi.mocked(plataformaRepository.findComercioById).mockResolvedValue(COMERCIO as never);
+
+    await expect(
+      plataformaService.reactivarComercio(5, 7, null)
+    ).rejects.toThrow(ConflictError);
+  });
+});
+
+describe("plataformaService.extenderAcceso / cambiarPlan", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2025-11-10T15:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("acumula días sobre el vencimiento y audita EXTENDER_ACCESO", async () => {
+    const esperado = calcularNuevoAcceso({
+      accesoHastaActual: COMERCIO.accesoHasta,
+      ahora: new Date(),
+      dias: 10,
+    });
+    const actualizado = { ...COMERCIO, accesoHasta: esperado };
+    vi.mocked(plataformaRepository.findComercioById).mockResolvedValue(COMERCIO as never);
+    vi.mocked(plataformaRepository.updateComercio).mockResolvedValue(
+      actualizado as never
+    );
+    vi.mocked(plataformaRepository.crearAuditoria).mockResolvedValue({} as never);
+
+    const resultado = await plataformaService.extenderAcceso(5, 10, 7, null);
+
+    expect(plataformaRepository.updateComercio).toHaveBeenCalledWith(
+      5,
+      { accesoHasta: esperado },
+      tx
+    );
+    expect(plataformaRepository.crearAuditoria).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accion: "EXTENDER_ACCESO",
+        detalle: {
+          antes: expect.objectContaining({
+            accesoHasta: COMERCIO.accesoHasta.toISOString(),
+          }),
+          despues: expect.objectContaining({
+            accesoHasta: esperado.toISOString(),
+          }),
+        },
+      }),
+      tx
+    );
+    expect(resultado.accesoHasta).toBe(esperado);
+  });
+
+  it("cambia solo la etiqueta del plan, sin mover la fecha", async () => {
+    const actualizado = { ...COMERCIO, plan: "MENSUAL" as const };
+    vi.mocked(plataformaRepository.findComercioById).mockResolvedValue(COMERCIO as never);
+    vi.mocked(plataformaRepository.updateComercio).mockResolvedValue(
+      actualizado as never
+    );
+    vi.mocked(plataformaRepository.crearAuditoria).mockResolvedValue({} as never);
+
+    const resultado = await plataformaService.cambiarPlan(5, "MENSUAL", 7, null);
+
+    expect(plataformaRepository.updateComercio).toHaveBeenCalledWith(
+      5,
+      { plan: "MENSUAL" },
+      tx
+    );
+    expect(resultado.accesoHasta).toBe(COMERCIO.accesoHasta);
+    expect(plataformaRepository.crearAuditoria).toHaveBeenCalledWith(
+      expect.objectContaining({ accion: "CAMBIAR_PLAN" }),
+      tx
+    );
+  });
+});
+
+describe("plataformaService.registrarPago", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2025-11-10T15:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("acumula meses, crea el Pago y audita con antes/después en la misma transacción", async () => {
+    const esperado = calcularNuevoAcceso({
+      accesoHastaActual: COMERCIO.accesoHasta,
+      ahora: new Date(),
+      meses: 3,
+    });
+    const pago = {
+      id: 99,
+      monto: 15000,
+      plan: "MENSUAL",
+      mesesAcreditados: 3,
+      accesoDesde: COMERCIO.accesoHasta,
+      accesoHasta: esperado,
+    };
+    vi.mocked(plataformaRepository.findComercioById).mockResolvedValue(COMERCIO as never);
+    vi.mocked(plataformaRepository.updateComercioCondicional).mockResolvedValue({
+      count: 1,
+    } as never);
+    vi.mocked(plataformaRepository.crearPago).mockResolvedValue(pago as never);
+    vi.mocked(plataformaRepository.crearAuditoria).mockResolvedValue({} as never);
+
+    const resultado = await plataformaService.registrarPago(
+      5,
+      {
+        plan: "MENSUAL",
+        meses: 3,
+        monto: 15000,
+        metodo: "TRANSFERENCIA",
+        referencia: "ref",
+        nota: "nota",
+      },
+      7,
+      "127.0.0.1"
+    );
+
+    expect(plataformaRepository.updateComercioCondicional).toHaveBeenCalledWith(
+      { id: 5, accesoHasta: COMERCIO.accesoHasta },
+      { plan: "MENSUAL", accesoHasta: esperado },
+      tx
+    );
+    expect(plataformaRepository.crearPago).toHaveBeenCalledWith(
+      expect.objectContaining({
+        monto: 15000,
+        metodo: "TRANSFERENCIA",
+        plan: "MENSUAL",
+        mesesAcreditados: 3,
+        accesoDesde: COMERCIO.accesoHasta,
+        accesoHasta: esperado,
+        comercioId: 5,
+        registradoPorId: 7,
+      }),
+      tx
+    );
+    expect(plataformaRepository.crearAuditoria).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accion: "REGISTRAR_PAGO",
+        detalle: {
+          antes: expect.objectContaining({
+            accesoHasta: COMERCIO.accesoHasta.toISOString(),
+          }),
+          despues: expect.objectContaining({
+            accesoHasta: esperado.toISOString(),
+            pagoId: 99,
+            mesesAcreditados: 3,
+          }),
+        },
+      }),
+      tx
+    );
+    expect(resultado).toBe(pago);
+  });
+
+  it("rechaza el plan PRUEBA antes de abrir la transacción", async () => {
+    await expect(
+      plataformaService.registrarPago(
+        5,
+        { plan: "PRUEBA" as never, meses: 1, monto: 100, metodo: "EFECTIVO" },
+        7,
+        null
+      )
+    ).rejects.toThrow(BadRequestError);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it.each([0, 25])("rechaza meses fuera de 1..24 (%s)", async (meses) => {
+    await expect(
+      plataformaService.registrarPago(
+        5,
+        { plan: "MENSUAL", meses, monto: 100, metodo: "EFECTIVO" },
+        7,
+        null
+      )
+    ).rejects.toThrow(BadRequestError);
+  });
+
+  it("si el comercio cambió, responde 409 y no crea Pago ni auditoría", async () => {
+    vi.mocked(plataformaRepository.findComercioById).mockResolvedValue(COMERCIO as never);
+    vi.mocked(plataformaRepository.updateComercioCondicional).mockResolvedValue({
+      count: 0,
+    } as never);
+
+    await expect(
+      plataformaService.registrarPago(
+        5,
+        { plan: "MENSUAL", meses: 1, monto: 100, metodo: "EFECTIVO" },
+        7,
+        null
+      )
+    ).rejects.toThrow("El comercio cambió, reintentá");
+    expect(plataformaRepository.crearPago).not.toHaveBeenCalled();
+    expect(plataformaRepository.crearAuditoria).not.toHaveBeenCalled();
+  });
+
+  it("lanza NotFoundError si el comercio no existe", async () => {
+    vi.mocked(plataformaRepository.findComercioById).mockResolvedValue(null);
+
+    await expect(
+      plataformaService.registrarPago(
+        999,
+        { plan: "MENSUAL", meses: 1, monto: 100, metodo: "EFECTIVO" },
+        7,
+        null
+      )
+    ).rejects.toThrow(NotFoundError);
+  });
+});
+
+describe("plataformaService.listarPagos / listarAuditoria", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("lista pagos paginados y 404 si el comercio no existe", async () => {
+    vi.mocked(plataformaRepository.findComercioById).mockResolvedValue(COMERCIO as never);
+    vi.mocked(plataformaRepository.findPagos).mockResolvedValue([{ id: 1 }] as never);
+    vi.mocked(plataformaRepository.countPagos).mockResolvedValue(1);
+
+    const resultado = await plataformaService.listarPagos(5, 1, 10);
+    expect(resultado.data).toEqual([{ id: 1 }]);
+    expect(resultado.meta).toEqual({ total: 1, page: 1, limit: 10, totalPaginas: 1 });
+
+    vi.mocked(plataformaRepository.findComercioById).mockResolvedValue(null);
+    await expect(plataformaService.listarPagos(999, 1, 10)).rejects.toThrow(
+      NotFoundError
+    );
+  });
+
+  it("lista auditoría global o filtrada y valida que el comercio exista", async () => {
+    vi.mocked(plataformaRepository.findComercioById).mockResolvedValue(COMERCIO as never);
+    vi.mocked(plataformaRepository.findAuditorias).mockResolvedValue([{ id: 1 }] as never);
+    vi.mocked(plataformaRepository.countAuditorias).mockResolvedValue(1);
+
+    const resultado = await plataformaService.listarAuditoria({
+      comercioId: 5,
+      page: 1,
+      limit: 10,
+    });
+    expect(plataformaRepository.findAuditorias).toHaveBeenCalledWith(
+      { comercioId: 5 },
+      0,
+      10
+    );
+    expect(resultado.meta.total).toBe(1);
+
+    vi.mocked(plataformaRepository.findComercioById).mockResolvedValue(null);
+    await expect(
+      plataformaService.listarAuditoria({ comercioId: 999, page: 1, limit: 10 })
+    ).rejects.toThrow(NotFoundError);
+  });
+});
+
+describe("plataformaService.obtenerMetricas", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2025-11-10T15:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("cuenta por estado, pruebas por vencer, inactivos por login y pagos por moneda", async () => {
+    const ahora = new Date();
+    vi.mocked(plataformaRepository.findComerciosParaMetricas).mockResolvedValue([
+      {
+        id: 1,
+        activo: true,
+        accesoHasta: new Date(ahora.getTime() + 2 * 24 * 60 * 60 * 1000),
+        plan: "PRUEBA",
+        ultimoLogin: new Date(ahora.getTime() - 1 * 24 * 60 * 60 * 1000),
+      },
+      {
+        id: 2,
+        activo: false,
+        accesoHasta: null,
+        plan: "MENSUAL",
+        ultimoLogin: null,
+      },
+      {
+        id: 3,
+        activo: true,
+        accesoHasta: null,
+        plan: "MENSUAL",
+        ultimoLogin: new Date(ahora.getTime() - 40 * 24 * 60 * 60 * 1000),
+      },
+      {
+        id: 4,
+        activo: true,
+        accesoHasta: new Date(ahora.getTime() - 1 * 24 * 60 * 60 * 1000),
+        plan: "MENSUAL",
+        ultimoLogin: new Date(ahora.getTime() - 2 * 24 * 60 * 60 * 1000),
+      },
+      {
+        id: 5,
+        activo: true,
+        accesoHasta: new Date(ahora.getTime() - 10 * 24 * 60 * 60 * 1000),
+        plan: "MENSUAL",
+        ultimoLogin: new Date(ahora.getTime() - 3 * 24 * 60 * 60 * 1000),
+      },
+    ] as never);
+    vi.mocked(plataformaRepository.sumarPagosPorMoneda).mockResolvedValue([
+      { moneda: "ARS", _sum: { monto: 25000 } },
+    ] as never);
+
+    const resultado = await plataformaService.obtenerMetricas();
+
+    expect(resultado.totalComercios).toBe(5);
+    expect(resultado.porEstado).toEqual({
+      SUSPENDIDO: 1,
+      SIN_VENCIMIENTO: 1,
+      VIGENTE: 1,
+      EN_GRACIA: 1,
+      VENCIDA: 1,
+    });
+    expect(resultado.pruebasPorVencer7Dias).toBe(1);
+    expect(resultado.sinIngreso30Dias).toBe(2);
+    expect(resultado.pagosMes).toEqual([{ moneda: "ARS", total: 25000 }]);
+  });
+});

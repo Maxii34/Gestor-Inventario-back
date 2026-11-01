@@ -154,6 +154,9 @@ describe("usuarioService.login", () => {
     expect(resultado.refreshToken).toBeDefined();
     expect(resultado.comercio).toEqual({ id: 1, nombre: "Kiosco", slug: "kiosco" });
     expect(resultado.usuario).not.toHaveProperty("password");
+    expect(comercioRepository.update).toHaveBeenCalledWith(1, {
+      ultimoLogin: expect.any(Date),
+    });
   });
 });
 
