@@ -126,4 +126,59 @@ export const plataformaController = {
       data: comercio,
     });
   },
+
+  registrarPago: async (req: Request, res: Response) => {
+    const pago = await plataformaService.registrarPago(
+      parseId(req.params.id),
+      req.body,
+      requireSuperadmin(req as PlataformaRequest),
+      req.ip ?? null
+    );
+    res.status(201).json({
+      ok: true,
+      mensaje: "Pago registrado",
+      data: pago,
+    });
+  },
+
+  getPagos: async (req: Request, res: Response) => {
+    const { page, limit } = leerPaginacion(req.query);
+    const resultado = await plataformaService.listarPagos(
+      parseId(req.params.id),
+      page,
+      limit
+    );
+    res.status(200).json({
+      ok: true,
+      mensaje: "Pagos obtenidos",
+      data: resultado.data,
+      meta: resultado.meta,
+    });
+  },
+
+  getAuditoria: async (req: Request, res: Response) => {
+    const { page, limit } = leerPaginacion(req.query);
+    const comercioIdCrudo = queryString(req.query.comercioId);
+    const resultado = await plataformaService.listarAuditoria({
+      comercioId:
+        comercioIdCrudo !== undefined ? parseId(comercioIdCrudo) : undefined,
+      page,
+      limit,
+    });
+    res.status(200).json({
+      ok: true,
+      mensaje: "Auditoría obtenida",
+      data: resultado.data,
+      meta: resultado.meta,
+    });
+  },
+
+  getMetricas: async (_req: Request, res: Response) => {
+    const metricas = await plataformaService.obtenerMetricas();
+    res.status(200).json({
+      ok: true,
+      mensaje: "Métricas obtenidas",
+      data: metricas,
+    });
+  },
 };

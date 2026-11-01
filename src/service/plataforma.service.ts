@@ -417,6 +417,209 @@ const cambiarPlan = async (
     return actualizado;
   });
 
+const registrarPago = async (
+  id: number,
+  data: RegistrarPagoDTO,
+  superadminId: number,
+  ip: string | null
+) => {
+  if ((data.plan as string) === "PRUEBA") {
+    throw new BadRequestError("El plan PRUEBA no es pagable");
+  }
+  if (!Number.isInteger(data.meses) || data.meses < 1 || data.meses > 24) {
+    throw new BadRequestError("La cantidad de meses debe estar entre 1 y 24");
+  }
+  if (!Number.isFinite(data.monto) || data.monto <= 0) {
+    throw new BadRequestError("El monto debe ser mayor a 0");
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const comercio = await plataformaRepository.findComercioById(id, tx);
+    if (!comercio) {
+      throw new NotFoundError("Comercio no encontrado");
+    }
+
+    const ahora = new Date();
+    const accesoDesde =
+      comercio.accesoHasta && comercio.accesoHasta.getTime() > ahora.getTime()
+        ? comercio.accesoHasta
+        : ahora;
+    const accesoHasta = calcularNuevoAcceso({
+      accesoHastaActual: comercio.accesoHasta,
+      ahora,
+      meses: data.meses,
+    });
+
+    // Actualización condicionada al accesoHasta leído: si otro pago concurrente
+    // ya lo movió, este no pisa meses y se responde 409 para reintentar.
+    const cambio = await plataformaRepository.updateComercioCondicional(
+      { id, accesoHasta: comercio.accesoHasta },
+      { plan: data.plan, accesoHasta },
+      tx
+    );
+    if (cambio.count === 0) {
+      throw new ConflictError("El comercio cambió, reintentá");
+    }
+
+    const pago = await plataformaRepository.crearPago(
+      {
+        monto: data.monto,
+        metodo: data.metodo,
+        referencia: data.referencia ?? null,
+        nota: data.nota ?? null,
+        plan: data.plan,
+        mesesAcreditados: data.meses,
+        accesoDesde,
+        accesoHasta,
+        comercioId: id,
+        registradoPorId: superadminId,
+      },
+      tx
+    );
+
+    await plataformaRepository.crearAuditoria(
+      {
+        accion: AccionPlataforma.REGISTRAR_PAGO,
+        detalle: {
+          antes: snapshotComercio(comercio),
+          despues: {
+            ...snapshotComercio({ ...comercio, plan: data.plan, accesoHasta }),
+            pagoId: pago.id,
+            mesesAcreditados: data.meses,
+            monto: data.monto,
+          },
+        },
+        ip,
+        superadminId,
+        comercioId: id,
+      },
+      tx
+    );
+
+    return pago;
+  });
+};
+
+const listarPagos = async (id: number, page: number, limit: number) => {
+  const comercio = await plataformaRepository.findComercioById(id);
+  if (!comercio) {
+    throw new NotFoundError("Comercio no encontrado");
+  }
+
+  const skip = (page - 1) * limit;
+  const [pagos, total] = await Promise.all([
+    plataformaRepository.findPagos(id, skip, limit),
+    plataformaRepository.countPagos(id),
+  ]);
+
+  return {
+    data: pagos,
+    meta: { total, page, limit, totalPaginas: Math.ceil(total / limit) },
+  };
+};
+
+const listarAuditoria = async ({
+  comercioId,
+  page,
+  limit,
+}: {
+  comercioId?: number;
+  page: number;
+  limit: number;
+}) => {
+  if (comercioId !== undefined) {
+    const comercio = await plataformaRepository.findComercioById(comercioId);
+    if (!comercio) {
+      throw new NotFoundError("Comercio no encontrado");
+    }
+  }
+
+  const where: Prisma.AuditoriaPlataformaWhereInput =
+    comercioId !== undefined ? { comercioId } : {};
+  const skip = (page - 1) * limit;
+  const [auditorias, total] = await Promise.all([
+    plataformaRepository.findAuditorias(where, skip, limit),
+    plataformaRepository.countAuditorias(where),
+  ]);
+
+  return {
+    data: auditorias,
+    meta: { total, page, limit, totalPaginas: Math.ceil(total / limit) },
+  };
+};
+
+const MS_DIA = 24 * 60 * 60 * 1000;
+const OFFSET_ARGENTINA_MS = -3 * 60 * 60 * 1000;
+
+const rangoMesActualArgentina = (ahora: Date) => {
+  const horaArgentina = new Date(ahora.getTime() + OFFSET_ARGENTINA_MS);
+  const desde = new Date(
+    Date.UTC(horaArgentina.getUTCFullYear(), horaArgentina.getUTCMonth(), 1) -
+      OFFSET_ARGENTINA_MS
+  );
+  const hasta = new Date(
+    Date.UTC(
+      horaArgentina.getUTCFullYear(),
+      horaArgentina.getUTCMonth() + 1,
+      1
+    ) - OFFSET_ARGENTINA_MS
+  );
+  return { desde, hasta };
+};
+
+const obtenerMetricas = async () => {
+  const ahora = new Date();
+  const comercios = await plataformaRepository.findComerciosParaMetricas();
+
+  const porEstado: Record<EstadoSuscripcion, number> = {
+    SUSPENDIDO: 0,
+    SIN_VENCIMIENTO: 0,
+    VIGENTE: 0,
+    EN_GRACIA: 0,
+    VENCIDA: 0,
+  };
+
+  const limitePrueba = new Date(ahora.getTime() + 7 * MS_DIA);
+  const hace30Dias = new Date(ahora.getTime() - 30 * MS_DIA);
+  let pruebasPorVencer7Dias = 0;
+  let sinIngreso30Dias = 0;
+
+  for (const comercio of comercios) {
+    const { estado } = estadoSuscripcion(comercio, ahora);
+    porEstado[estado] += 1;
+
+    if (
+      comercio.plan === "PRUEBA" &&
+      comercio.accesoHasta &&
+      comercio.accesoHasta.getTime() >= ahora.getTime() &&
+      comercio.accesoHasta.getTime() <= limitePrueba.getTime()
+    ) {
+      pruebasPorVencer7Dias += 1;
+    }
+
+    if (
+      !comercio.ultimoLogin ||
+      comercio.ultimoLogin.getTime() < hace30Dias.getTime()
+    ) {
+      sinIngreso30Dias += 1;
+    }
+  }
+
+  const { desde, hasta } = rangoMesActualArgentina(ahora);
+  const pagos = await plataformaRepository.sumarPagosPorMoneda(desde, hasta);
+
+  return {
+    totalComercios: comercios.length,
+    porEstado,
+    pruebasPorVencer7Dias,
+    sinIngreso30Dias,
+    pagosMes: pagos.map((pago) => ({
+      moneda: pago.moneda,
+      total: Number(pago._sum.monto ?? 0),
+    })),
+  };
+};
+
 export const plataformaService = {
   login,
   listarComercios,
@@ -426,4 +629,8 @@ export const plataformaService = {
   reactivarComercio,
   extenderAcceso,
   cambiarPlan,
+  registrarPago,
+  listarPagos,
+  listarAuditoria,
+  obtenerMetricas,
 };

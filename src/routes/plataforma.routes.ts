@@ -56,5 +56,19 @@ router.post(
   validate(cambiarPlanSchema),
   plataformaController.cambiarPlan
 );
+router.post(
+  "/comercios/:id/pagos",
+  verificarSuperadmin,
+  validate(registrarPagoSchema),
+  plataformaController.registrarPago
+);
+router.get(
+  "/comercios/:id/pagos",
+  verificarSuperadmin,
+  plataformaController.getPagos
+);
+
+router.get("/auditoria", verificarSuperadmin, plataformaController.getAuditoria);
+router.get("/metricas", verificarSuperadmin, plataformaController.getMetricas);
 
 export default router;
