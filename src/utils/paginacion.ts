@@ -7,13 +7,18 @@ const acotar = (valor: number, minimo: number, maximo: number) =>
 
 // Lee page/limit de la query string acotando ambos a rangos seguros.
 // Un parámetro repetido llega como arreglo: se descarta y cae en el default.
-export const leerPaginacion = (query: { page?: unknown; limit?: unknown }) => {
+export const leerPaginacion = (
+  query: { page?: unknown; limit?: unknown },
+  opciones: { limitePorDefecto?: number } = {}
+) => {
   const pageCrudo = Array.isArray(query.page) ? NaN : Number(query.page);
   const limitCrudo = Array.isArray(query.limit) ? NaN : Number(query.limit);
+  const limitePorDefecto =
+    opciones.limitePorDefecto ?? LIMITE_POR_DEFECTO;
 
   const page = acotar(Math.floor(pageCrudo) || 1, 1, PAGINA_MAXIMA);
   const limit = acotar(
-    Math.floor(limitCrudo) || LIMITE_POR_DEFECTO,
+    Math.floor(limitCrudo) || limitePorDefecto,
     1,
     LIMITE_MAXIMO
   );

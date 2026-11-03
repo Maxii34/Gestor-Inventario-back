@@ -14,6 +14,23 @@ describe("leerPaginacion", () => {
     });
   });
 
+  it("permite definir un límite por defecto alternativo", () => {
+    expect(leerPaginacion({}, { limitePorDefecto: 100 })).toEqual({
+      page: 1,
+      limit: 100,
+    });
+  });
+
+  it("usa el límite por defecto alternativo si limit no es válido", () => {
+    expect(
+      leerPaginacion({ limit: "abc" }, { limitePorDefecto: 100 }).limit
+    ).toBe(100);
+  });
+
+  it("mantiene el máximo aunque el límite por defecto alternativo sea mayor", () => {
+    expect(leerPaginacion({}, { limitePorDefecto: 1000 }).limit).toBe(LIMITE_MAXIMO);
+  });
+
   it("acepta valores válidos", () => {
     expect(leerPaginacion({ page: "3", limit: "25" })).toEqual({
       page: 3,
