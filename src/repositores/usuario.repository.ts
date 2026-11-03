@@ -13,13 +13,33 @@ const seleccionSinPassword = {
   fechaCreacion: true,
 } as const;
 
+const construirWhere = (
+  comercioId: number,
+  q?: string
+): Prisma.UsuarioWhereInput => ({
+  comercioId,
+  ...(q
+    ? {
+        OR: [
+          { nombre: { contains: q, mode: "insensitive" } },
+          { email: { contains: q, mode: "insensitive" } },
+        ],
+      }
+    : {}),
+});
+
 export const usuarioRepository = {
-  findAll: (comercioId: number) =>
+  findAll: (comercioId: number, skip: number, take: number, q?: string) =>
     prisma.usuario.findMany({
-      where: { comercioId },
+      where: construirWhere(comercioId, q),
+      skip,
+      take,
       select: seleccionSinPassword,
       orderBy: { id: 'asc' },
     }),
+
+  count: (comercioId: number, q?: string) =>
+    prisma.usuario.count({ where: construirWhere(comercioId, q) }),
 
   findById: (id: number, comercioId: number) =>
     prisma.usuario.findFirst({

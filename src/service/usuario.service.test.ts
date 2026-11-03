@@ -24,6 +24,37 @@ vi.mock("jsonwebtoken");
 
 const COMERCIO = { id: 1, nombre: "Kiosco", slug: "kiosco", activo: true } as any;
 
+describe("usuarioService.getAll", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("pide la página y el total con comercio, búsqueda recortada y meta", async () => {
+    const usuarios = [{ id: 1, nombre: "Admin", email: "admin@test.com" }];
+    vi.mocked(usuarioRepository.findAll).mockResolvedValue(usuarios as any);
+    vi.mocked(usuarioRepository.count).mockResolvedValue(7);
+
+    const resultado = await usuarioService.getAll(4, 3, 2, "  admin  ");
+
+    expect(usuarioRepository.findAll).toHaveBeenCalledWith(4, 4, 2, "admin");
+    expect(usuarioRepository.count).toHaveBeenCalledWith(4, "admin");
+    expect(resultado).toEqual({
+      data: usuarios,
+      meta: { total: 7, page: 3, limit: 2, totalPaginas: 4 },
+    });
+  });
+
+  it("ignora búsquedas mayores a 100 caracteres", async () => {
+    vi.mocked(usuarioRepository.findAll).mockResolvedValue([] as any);
+    vi.mocked(usuarioRepository.count).mockResolvedValue(0);
+
+    await usuarioService.getAll(4, 1, 100, "x".repeat(101));
+
+    expect(usuarioRepository.findAll).toHaveBeenCalledWith(4, 0, 100, undefined);
+    expect(usuarioRepository.count).toHaveBeenCalledWith(4, undefined);
+  });
+});
+
 const usuarioFalso = {
   id: 1,
   nombre: "Admin",

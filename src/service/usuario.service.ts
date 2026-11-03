@@ -59,7 +59,26 @@ const generarRefreshToken = async (usuarioId: number) => {
 };
 
 export const usuarioService = {
-  getAll: (comercioId: number) => usuarioRepository.findAll(comercioId),
+  getAll: async (
+    comercioId: number,
+    page: number,
+    limit: number,
+    q?: string
+  ) => {
+    const termino = typeof q === "string" ? q.trim() : "";
+    const filtro = termino && termino.length <= 100 ? termino : undefined;
+    const skip = (page - 1) * limit;
+
+    const [usuarios, total] = await Promise.all([
+      usuarioRepository.findAll(comercioId, skip, limit, filtro),
+      usuarioRepository.count(comercioId, filtro),
+    ]);
+
+    return {
+      data: usuarios,
+      meta: { total, page, limit, totalPaginas: Math.ceil(total / limit) },
+    };
+  },
 
   getById: async (id: number, comercioId: number) => {
     const usuario = await usuarioRepository.findById(id, comercioId);

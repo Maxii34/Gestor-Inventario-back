@@ -449,6 +449,41 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)("integración HTTP: aislamiento entre comerc
       expect(res.status).toBe(200);
       expect(res.body.meta.limit).toBe(100);
     });
+
+    it("el buscador de usuarios de B no encuentra a los de A", async () => {
+      const res = await llamar(
+        "get",
+        `/usuarios?q=${encodeURIComponent(A.vendedorEmail)}`,
+        B.token
+      );
+
+      expect(res.status).toBe(200);
+      expect((res.body.data as { id: number }[]).map((usuario) => usuario.id))
+        .not.toContain(A.vendedorId);
+    });
+
+    it("GET /usuarios?limit=1 conserva el aislamiento y limita la página", async () => {
+      const res = await llamar("get", "/usuarios?limit=1", B.token);
+
+      expect(res.status).toBe(200);
+      expect(res.body.meta.limit).toBe(1);
+      expect((res.body.data as { id: number }[]).length).toBeLessThanOrEqual(1);
+      expect((res.body.data as { id: number }[]).some((item) => item.id === A.vendedorId)).toBe(false);
+    });
+
+    it("GET /usuarios?limit=100000 acota meta.limit a 100", async () => {
+      const res = await llamar("get", "/usuarios?limit=100000", B.token);
+
+      expect(res.status).toBe(200);
+      expect(res.body.meta.limit).toBe(100);
+    });
+
+    it("GET /usuarios sin parámetros usa meta.limit 100", async () => {
+      const res = await llamar("get", "/usuarios", B.token);
+
+      expect(res.status).toBe(200);
+      expect(res.body.meta.limit).toBe(100);
+    });
   });
 
   // ------------------------------------------------------------------ 5

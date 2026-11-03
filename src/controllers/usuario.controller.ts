@@ -1,12 +1,27 @@
 import { Request, Response } from "express";
 import { usuarioService } from "../service/usuario.service";
 import { AuthRequest, requireComercio } from "../middlewares/auth.middleware";
+import { leerPaginacion } from "../utils/paginacion";
 
 export const usuarioController = {
 
   getAll: async (req: Request, res: Response) => {
-    const usuarios = await usuarioService.getAll(requireComercio(req as AuthRequest));
-    res.status(200).json({ ok: true, mensaje: "Usuarios obtenidos correctamente", data: usuarios });
+    const { page, limit } = leerPaginacion(req.query, {
+      limitePorDefecto: 100,
+    });
+    const q = typeof req.query.q === "string" ? req.query.q : undefined;
+    const resultado = await usuarioService.getAll(
+      requireComercio(req as AuthRequest),
+      page,
+      limit,
+      q
+    );
+    res.status(200).json({
+      ok: true,
+      mensaje: "Usuarios obtenidos correctamente",
+      data: resultado.data,
+      meta: resultado.meta,
+    });
   },
 
   getById: async (req: Request, res: Response) => {
