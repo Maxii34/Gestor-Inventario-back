@@ -3,9 +3,27 @@ import { Prisma } from "../generated/prisma/client";
 
 type PrismaTx = Prisma.TransactionClient;
 
+const construirWhere = (
+  comercioId: number,
+  q?: string
+): Prisma.CategoriaWhereInput => ({
+  comercioId,
+  ...(q
+    ? { nombre: { contains: q, mode: "insensitive" } }
+    : {}),
+});
+
 export const categoriaRepository = {
-  findAll: (comercioId: number) =>
-    prisma.categoria.findMany({ where: { comercioId } }),
+  findAll: (comercioId: number, skip: number, take: number, q?: string) =>
+    prisma.categoria.findMany({
+      where: construirWhere(comercioId, q),
+      skip,
+      take,
+      orderBy: { id: "asc" },
+    }),
+
+  count: (comercioId: number, q?: string) =>
+    prisma.categoria.count({ where: construirWhere(comercioId, q) }),
 
   findById: (id: number, comercioId: number) =>
     prisma.categoria.findFirst({

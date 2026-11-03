@@ -414,6 +414,41 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)("integración HTTP: aislamiento entre comerc
       expect(ids).not.toContain(A.adminId);
       expect(ids).not.toContain(A.vendedorId);
     });
+
+    it("el buscador de categorías de B no encuentra la categoría de A", async () => {
+      const res = await llamar(
+        "get",
+        `/categorias?q=${encodeURIComponent(A.nombreCategoria)}`,
+        B.token
+      );
+
+      expect(res.status).toBe(200);
+      expect((res.body.data as { id: number }[]).map((categoria) => categoria.id))
+        .not.toContain(A.categoriaId);
+    });
+
+    it("GET /categorias?limit=1 conserva el aislamiento y limita la página", async () => {
+      const res = await llamar("get", "/categorias?limit=1", B.token);
+
+      expect(res.status).toBe(200);
+      expect(res.body.meta.limit).toBe(1);
+      expect((res.body.data as { id: number }[]).length).toBeLessThanOrEqual(1);
+      expect((res.body.data as { id: number }[]).some((item) => item.id === A.categoriaId)).toBe(false);
+    });
+
+    it("GET /categorias?limit=100000 acota meta.limit a 100", async () => {
+      const res = await llamar("get", "/categorias?limit=100000", B.token);
+
+      expect(res.status).toBe(200);
+      expect(res.body.meta.limit).toBe(100);
+    });
+
+    it("GET /categorias sin parámetros usa meta.limit 100", async () => {
+      const res = await llamar("get", "/categorias", B.token);
+
+      expect(res.status).toBe(200);
+      expect(res.body.meta.limit).toBe(100);
+    });
   });
 
   // ------------------------------------------------------------------ 5
