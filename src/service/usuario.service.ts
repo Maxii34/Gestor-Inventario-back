@@ -123,7 +123,13 @@ export const usuarioService = {
       throw new ForbiddenError("La cuenta está suspendida. Contactá a soporte.");
     }
 
-    await comercioRepository.update(comercio.id, { ultimoLogin: new Date() });
+    // Registrar el último login es informativo: si falla, no debe impedir el
+    // ingreso del usuario.
+    try {
+      await comercioRepository.update(comercio.id, { ultimoLogin: new Date() });
+    } catch (error) {
+      console.error("No se pudo registrar el último login:", error);
+    }
 
     const accessToken = generarAccessToken(usuario);
     const refreshToken = await generarRefreshToken(usuario.id);

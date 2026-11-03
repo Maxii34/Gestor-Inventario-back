@@ -181,6 +181,36 @@ describe("usuarioService.login", () => {
     await expect(intento).rejects.toThrow("Credenciales inválidas");
   });
 
+  it("si falla el registro de ultimoLogin, el login igual devuelve los tokens", async () => {
+    vi.mocked(comercioRepository.findBySlug).mockResolvedValue(COMERCIO);
+    vi.mocked(usuarioRepository.findByEmailAndComercio).mockResolvedValue(usuarioFalso);
+    vi.mocked(bcrypt.compare).mockResolvedValue(true as never);
+    vi.mocked(jwt.sign).mockReturnValue("access-token-falso" as never);
+    vi.mocked(refreshTokenRepository.create).mockResolvedValue({} as any);
+    vi.mocked(comercioRepository.update).mockRejectedValue(new Error("base caída"));
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const resultado = await usuarioService.login({
+        slug: "kiosco",
+        email: "admin@test.com",
+        password: "correcta",
+      });
+
+      expect(resultado.accessToken).toBe("access-token-falso");
+      expect(resultado.refreshToken).toBeDefined();
+      expect(resultado.usuario).not.toHaveProperty("password");
+      expect(comercioRepository.update).toHaveBeenCalledWith(1, {
+        ultimoLogin: expect.any(Date),
+      });
+      expect(errorSpy).toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+      vi.mocked(comercioRepository.update).mockReset();
+    }
+  });
+
   it("devuelve tokens con comercioId en el JWT y datos del comercio", async () => {
     vi.mocked(comercioRepository.findBySlug).mockResolvedValue(COMERCIO);
     vi.mocked(usuarioRepository.findByEmailAndComercio).mockResolvedValue(usuarioFalso);
