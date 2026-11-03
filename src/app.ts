@@ -14,6 +14,7 @@ import estadisticaRoutes from "./routes/estadistica.routes";
 import comercioRoutes from "./routes/comercio.routes";
 import proveedorRoutes from "./routes/proveedor.routes";
 import plataformaRoutes from "./routes/plataforma.routes";
+import suscripcionRoutes from "./routes/suscripcion.routes";
 import { verificarVigencia } from "./middlewares/vigencia.middleware";
 
 const app = express();
@@ -75,6 +76,7 @@ app.use("/clientes", clienteRoutes);
 app.use("/ventas", ventaRoutes);
 app.use("/usuarios", usuarioRoutes);
 app.use("/estadisticas", estadisticaRoutes);
+app.use("/suscripcion", suscripcionRoutes);
 app.use("/comercios", comercioRoutes);
 app.use("/plataforma", plataformaRoutes);
 
