@@ -5,7 +5,12 @@ import { usuarioRepository } from "../repositores/usuario.repository";
 import { refreshTokenRepository } from "../repositores/refreshToken.repository";
 import { comercioRepository } from "../repositores/comercio.repository";
 import { RolUsuario } from "../generated/prisma/client";
-import { NotFoundError, ConflictError, UnauthorizedError } from "../utils/errors";
+import {
+  NotFoundError,
+  ConflictError,
+  UnauthorizedError,
+  ForbiddenError,
+} from "../utils/errors";
 
 export interface CrearUsuarioDTO {
   nombre: string;
@@ -93,8 +98,10 @@ export const usuarioService = {
   },
 
   login: async (data: LoginDTO) => {
-    // El comercio se resuelve por slug; si no existe o está inactivo, el error
-    // es genérico para no revelar qué slugs/emails existen.
+    // El comercio se resuelve por slug. Si no existe, el usuario no existe/está
+    // inactivo o la contraseña es incorrecta, el error es genérico para no
+    // revelar qué slugs/emails existen. La suspensión recién se informa con la
+    // contraseña correcta.
     const comercio = await comercioRepository.findBySlug(data.slug.trim().toLowerCase());
     const usuario = comercio
       ? await usuarioRepository.findByEmailAndComercio(
@@ -103,13 +110,17 @@ export const usuarioService = {
         )
       : null;
 
-    if (!comercio || !comercio.activo || !usuario || !usuario.activo) {
+    if (!comercio || !usuario || !usuario.activo) {
       throw new UnauthorizedError("Credenciales inválidas");
     }
 
     const passwordValida = await bcrypt.compare(data.password, usuario.password);
     if (!passwordValida) {
       throw new UnauthorizedError("Credenciales inválidas");
+    }
+
+    if (!comercio.activo) {
+      throw new ForbiddenError("La cuenta está suspendida. Contactá a soporte.");
     }
 
     await comercioRepository.update(comercio.id, { ultimoLogin: new Date() });

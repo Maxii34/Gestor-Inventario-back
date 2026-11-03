@@ -356,7 +356,10 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)("integración HTTP: plataforma", () => {
       expect(doble.status).toBe(409);
 
       const login = await loginComercio(suspendible);
-      expect(login.status).toBe(401);
+      expect(login.status, JSON.stringify(login.body)).toBe(403);
+      expect(login.body.mensaje).toBe(
+        "La cuenta está suspendida. Contactá a soporte."
+      );
 
       const refresh = await request(app)
         .post("/usuarios/refresh")
@@ -368,6 +371,17 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)("integración HTTP: plataforma", () => {
       });
       expect(tokens.length).toBeGreaterThan(0);
       expect(tokens.every((token) => token.revocado)).toBe(true);
+    });
+
+    it("con contraseña incorrecta mantiene el 401 genérico aunque el comercio esté suspendido", async () => {
+      const res = await request(app).post("/usuarios/login").send({
+        slug: suspendible.slug,
+        email: suspendible.adminEmail,
+        password: "incorrecta",
+      });
+
+      expect(res.status).toBe(401);
+      expect(res.body.mensaje).toBe("Credenciales inválidas");
     });
 
     it("reactiva y el comercio vuelve a funcionar; reactivar dos veces da 409", async () => {

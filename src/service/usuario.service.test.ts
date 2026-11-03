@@ -6,7 +6,12 @@ import { usuarioService } from "./usuario.service";
 import { usuarioRepository } from "../repositores/usuario.repository";
 import { refreshTokenRepository } from "../repositores/refreshToken.repository";
 import { comercioRepository } from "../repositores/comercio.repository";
-import { NotFoundError, ConflictError, UnauthorizedError } from "../utils/errors";
+import {
+  NotFoundError,
+  ConflictError,
+  UnauthorizedError,
+  ForbiddenError,
+} from "../utils/errors";
 
 vi.mock("../repositores/usuario.repository");
 vi.mock("../repositores/refreshToken.repository");
@@ -136,6 +141,44 @@ describe("usuarioService.login", () => {
     await expect(
       usuarioService.login({ slug: "kiosco", email: "admin@test.com", password: "incorrecta" })
     ).rejects.toThrow(UnauthorizedError);
+  });
+
+  it("lanza ForbiddenError con mensaje claro si la contraseña es correcta y el comercio está suspendido", async () => {
+    vi.mocked(comercioRepository.findBySlug).mockResolvedValue({
+      ...COMERCIO,
+      activo: false,
+    });
+    vi.mocked(usuarioRepository.findByEmailAndComercio).mockResolvedValue(usuarioFalso);
+    vi.mocked(bcrypt.compare).mockResolvedValue(true as never);
+
+    const intento = usuarioService.login({
+      slug: "kiosco",
+      email: "admin@test.com",
+      password: "correcta",
+    });
+
+    await expect(intento).rejects.toThrow(ForbiddenError);
+    await expect(intento).rejects.toThrow(
+      "La cuenta está suspendida. Contactá a soporte."
+    );
+  });
+
+  it("mantiene el 401 genérico si la contraseña es incorrecta aunque el comercio esté suspendido", async () => {
+    vi.mocked(comercioRepository.findBySlug).mockResolvedValue({
+      ...COMERCIO,
+      activo: false,
+    });
+    vi.mocked(usuarioRepository.findByEmailAndComercio).mockResolvedValue(usuarioFalso);
+    vi.mocked(bcrypt.compare).mockResolvedValue(false as never);
+
+    const intento = usuarioService.login({
+      slug: "kiosco",
+      email: "admin@test.com",
+      password: "incorrecta",
+    });
+
+    await expect(intento).rejects.toThrow(UnauthorizedError);
+    await expect(intento).rejects.toThrow("Credenciales inválidas");
   });
 
   it("devuelve tokens con comercioId en el JWT y datos del comercio", async () => {
