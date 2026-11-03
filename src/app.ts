@@ -14,6 +14,7 @@ import estadisticaRoutes from "./routes/estadistica.routes";
 import comercioRoutes from "./routes/comercio.routes";
 import proveedorRoutes from "./routes/proveedor.routes";
 import plataformaRoutes from "./routes/plataforma.routes";
+import { verificarVigencia } from "./middlewares/vigencia.middleware";
 
 const app = express();
 
@@ -50,6 +51,21 @@ app.use(express.json());
 app.get("/", (req, res) => {
   res.send("Servidor funcionando 🚀");
 });
+
+app.use(
+  [
+    "/categorias",
+    "/productos",
+    "/proveedores",
+    "/movimientos",
+    "/clientes",
+    "/ventas",
+    "/usuarios",
+    "/estadisticas",
+    "/suscripcion",
+  ],
+  verificarVigencia
+);
 
 app.use("/categorias", categoriaRoutes);
 app.use("/productos", productoRoutes);

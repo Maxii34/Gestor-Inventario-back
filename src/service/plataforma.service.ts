@@ -18,6 +18,7 @@ import {
   UnauthorizedError,
 } from "../utils/errors";
 import { obtenerSecretoPlataforma } from "../utils/plataformaJwt";
+import { invalidarVigencia } from "../middlewares/vigencia.middleware";
 
 export interface LoginPlataformaDTO {
   email: string;
@@ -253,8 +254,8 @@ const suspenderComercio = async (
   motivo: string,
   superadminId: number,
   ip: string | null
-) =>
-  prisma.$transaction(async (tx) => {
+) => {
+  const resultado = await prisma.$transaction(async (tx) => {
     const comercio = await plataformaRepository.findComercioById(id, tx);
     if (!comercio) {
       throw new NotFoundError("Comercio no encontrado");
@@ -296,12 +297,16 @@ const suspenderComercio = async (
     return actualizado;
   });
 
+  invalidarVigencia(id);
+  return resultado;
+};
+
 const reactivarComercio = async (
   id: number,
   superadminId: number,
   ip: string | null
-) =>
-  prisma.$transaction(async (tx) => {
+) => {
+  const resultado = await prisma.$transaction(async (tx) => {
     const comercio = await plataformaRepository.findComercioById(id, tx);
     if (!comercio) {
       throw new NotFoundError("Comercio no encontrado");
@@ -341,13 +346,17 @@ const reactivarComercio = async (
     return actualizado;
   });
 
+  invalidarVigencia(id);
+  return resultado;
+};
+
 const extenderAcceso = async (
   id: number,
   dias: number,
   superadminId: number,
   ip: string | null
-) =>
-  prisma.$transaction(async (tx) => {
+) => {
+  const resultado = await prisma.$transaction(async (tx) => {
     const comercio = await plataformaRepository.findComercioById(id, tx);
     if (!comercio) {
       throw new NotFoundError("Comercio no encontrado");
@@ -382,13 +391,17 @@ const extenderAcceso = async (
     return actualizado;
   });
 
+  invalidarVigencia(id);
+  return resultado;
+};
+
 const cambiarPlan = async (
   id: number,
   plan: Plan,
   superadminId: number,
   ip: string | null
-) =>
-  prisma.$transaction(async (tx) => {
+) => {
+  const resultado = await prisma.$transaction(async (tx) => {
     const comercio = await plataformaRepository.findComercioById(id, tx);
     if (!comercio) {
       throw new NotFoundError("Comercio no encontrado");
@@ -417,6 +430,10 @@ const cambiarPlan = async (
     return actualizado;
   });
 
+  invalidarVigencia(id);
+  return resultado;
+};
+
 const registrarPago = async (
   id: number,
   data: RegistrarPagoDTO,
@@ -433,7 +450,7 @@ const registrarPago = async (
     throw new BadRequestError("El monto debe ser mayor a 0");
   }
 
-  return prisma.$transaction(async (tx) => {
+  const resultado = await prisma.$transaction(async (tx) => {
     const comercio = await plataformaRepository.findComercioById(id, tx);
     if (!comercio) {
       throw new NotFoundError("Comercio no encontrado");
@@ -498,6 +515,9 @@ const registrarPago = async (
 
     return pago;
   });
+
+  invalidarVigencia(id);
+  return resultado;
 };
 
 const listarPagos = async (id: number, page: number, limit: number) => {
