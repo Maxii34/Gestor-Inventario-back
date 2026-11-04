@@ -33,6 +33,7 @@ import {
   UnauthorizedError,
 } from "../utils/errors";
 import { obtenerSecretoPlataforma } from "../utils/plataformaJwt";
+import { resolverPreciosProducto } from "../utils/precioProducto";
 import { invalidarVigencia } from "../middlewares/vigencia.middleware";
 
 export interface LoginPlataformaDTO {
@@ -1089,9 +1090,13 @@ const cargaMasivaProductos = async (
   const creados = await prisma.$transaction(async (tx) => {
     for (const { fila, categoriaId } of validas) {
       const { categoria, ...resto } = fila;
+      const precios = resolverPreciosProducto(fila);
       await productoRepository.create(
         {
           ...resto,
+          precioCompra: precios.precioCompra,
+          precioCompraPaquete: precios.precioCompraPaquete,
+          unidadesPorPaquete: precios.unidadesPorPaquete,
           activo: true,
           comercio: { connect: { id: comercioId } },
           categoria: { connect: { id: categoriaId } },

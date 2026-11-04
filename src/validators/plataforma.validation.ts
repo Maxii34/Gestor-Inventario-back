@@ -1,6 +1,10 @@
 ﻿import { z } from "zod";
 import { categoriaSchema } from "./categoria.validation";
-import { productoSchema } from "./producto.validation";
+import {
+  productoBaseSchema,
+  validarCostoProducto,
+  validarMargenProducto,
+} from "./producto.validation";
 
 const emailSchema = z
   .string()
@@ -74,7 +78,7 @@ export const categoriaMasivaFilaSchema = categoriaSchema
   .pick({ nombre: true, descripcion: true })
   .strict();
 
-export const productoMasivaFilaSchema = productoSchema
+export const productoMasivaFilaSchema = productoBaseSchema
   .omit({ categoriaId: true })
   .extend({
     categoria: z
@@ -85,13 +89,8 @@ export const productoMasivaFilaSchema = productoSchema
   })
   .strict()
   .superRefine((data, ctx) => {
-    if (data.precioVenta <= data.precioCompra) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["precioVenta"],
-        message: "El precio de venta debe ser mayor al de compra",
-      });
-    }
+    validarCostoProducto(data, ctx);
+    validarMargenProducto(data, ctx);
   });
 
 const cargaMasivaBase = {
