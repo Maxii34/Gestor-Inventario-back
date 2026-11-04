@@ -2,6 +2,8 @@ import { Request, Response } from "express";
 import { productoService } from "../service/producto.service";
 import { AuthRequest, requireComercio } from "../middlewares/auth.middleware";
 import { leerPaginacion } from "../utils/paginacion";
+import { BadRequestError } from "../utils/errors";
+import { codigoBarrasSchema } from "../validators/producto.validation";
 
 export const productoController = {
   getAll: async (req: Request, res: Response) => {
@@ -23,6 +25,21 @@ export const productoController = {
 
   getById: async (req: Request, res: Response) => {
     const productoObtenido = await productoService.getById(Number(req.params.id), requireComercio(req as AuthRequest));
+    res.status(200).json({ ok: true, mensaje: "Producto obtenido", data: productoObtenido });
+  },
+
+  getByCodigoBarras: async (req: Request, res: Response) => {
+    const codigo = codigoBarrasSchema.safeParse(req.params.codigo);
+    if (!codigo.success) {
+      throw new BadRequestError(
+        codigo.error.issues[0]?.message ?? "Código de barras inválido",
+      );
+    }
+
+    const productoObtenido = await productoService.getByCodigoBarras(
+      codigo.data,
+      requireComercio(req as AuthRequest),
+    );
     res.status(200).json({ ok: true, mensaje: "Producto obtenido", data: productoObtenido });
   },
 
