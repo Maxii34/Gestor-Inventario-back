@@ -18,6 +18,17 @@ export const loginLimiter = rateLimit({
   message: mensaje("Demasiados intentos de inicio de sesión. Probá de nuevo en 5 minutos."),
 });
 
+// Cambio de contraseña: mismo criterio que el login (solo cuentan los intentos
+// fallidos), con contador propio para no mezclarse con el de login.
+export const cambiarPasswordLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  limit: 5,
+  skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: mensaje("Demasiados intentos de cambio de contraseña. Probá de nuevo en 5 minutos."),
+});
+
 // Login de plataforma: mismo criterio que el login de comercio, pero con su
 // propio contador para que un intento de fuerza bruta contra el superadmin no
 // consuma el cupo de los usuarios de negocio (ni al revés).

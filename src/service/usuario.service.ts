@@ -10,6 +10,7 @@ import {
   ConflictError,
   UnauthorizedError,
   ForbiddenError,
+  BadRequestError,
 } from "../utils/errors";
 
 export interface CrearUsuarioDTO {
@@ -193,6 +194,44 @@ export const usuarioService = {
     const nuevoAccessToken = generarAccessToken(usuario);
 
     return { accessToken: nuevoAccessToken, refreshToken: nuevoRefreshToken };
+  },
+
+  cambiarPassword: async (
+    id: number,
+    comercioId: number,
+    data: { passwordActual: string; passwordNueva: string }
+  ) => {
+    const usuario = await usuarioRepository.findByIdConPassword(id, comercioId);
+    if (!usuario || !usuario.activo) {
+      throw new UnauthorizedError("Credenciales inválidas");
+    }
+
+    const passwordValida = await bcrypt.compare(
+      data.passwordActual,
+      usuario.password
+    );
+    if (!passwordValida) {
+      throw new UnauthorizedError("Credenciales inválidas");
+    }
+
+    if (data.passwordNueva === data.passwordActual) {
+      throw new BadRequestError(
+        "La nueva contraseña debe ser distinta de la actual"
+      );
+    }
+
+    const passwordHasheada = await bcrypt.hash(data.passwordNueva, 10);
+    await usuarioRepository.update(id, comercioId, {
+      password: passwordHasheada,
+      debeCambiarPassword: false,
+    });
+
+    await refreshTokenRepository.revocarTodosDeUsuario(id);
+
+    const accessToken = generarAccessToken(usuario);
+    const refreshToken = await generarRefreshToken(id);
+
+    return { accessToken, refreshToken };
   },
 
   // revoca el refresh token recibido

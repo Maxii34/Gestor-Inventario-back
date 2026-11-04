@@ -13,6 +13,7 @@ const RUTAS_EXENTAS_DE_VENCIMIENTO = new Set([
   "/usuarios/login",
   "/usuarios/refresh",
   "/usuarios/logout",
+  "/usuarios/cambiar-password",
 ]);
 
 const METODOS_LECTURA = new Set(["GET", "HEAD", "OPTIONS"]);

@@ -50,6 +50,19 @@ export const usuarioController = {
     res.status(200).json({ ok: true, mensaje: "Sesión cerrada correctamente", data: null });
   },
 
+  cambiarPassword: async (req: Request, res: Response) => {
+    const resultado = await usuarioService.cambiarPassword(
+      (req as AuthRequest).usuario!.id,
+      requireComercio(req as AuthRequest),
+      req.body
+    );
+    res.status(200).json({
+      ok: true,
+      mensaje: "Contraseña actualizada correctamente",
+      data: resultado,
+    });
+  },
+
   update: async (req: Request, res: Response) => {
     const id = Number(req.params.id);
     const usuario = await usuarioService.update(id, requireComercio(req as AuthRequest), req.body);

@@ -47,6 +47,19 @@ export const usuarioRepository = {
       select: seleccionSinPassword,
     }),
 
+  findByIdConPassword: (id: number, comercioId: number) =>
+    prisma.usuario.findFirst({
+      where: { id, comercioId },
+      select: {
+        id: true,
+        password: true,
+        rol: true,
+        activo: true,
+        comercioId: true,
+        debeCambiarPassword: true,
+      },
+    }),
+
   // Solo para `refresh`: el token ya identifica al usuario y de acá se
   // re-deriva su comercio (nunca viaja en el pedido). No usar para lecturas
   // expuestas: esas siempre llevan comercioId explícito.

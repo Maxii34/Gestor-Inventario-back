@@ -41,6 +41,19 @@ export const refreshTokenSchema = z
   })
   .strict();
 
+export const cambiarPasswordSchema = z
+  .object({
+    passwordActual: z
+      .string()
+      .min(1, "La contraseña actual es obligatoria")
+      .max(200),
+    passwordNueva: passwordNueva,
+  })
+  .strict()
+  .refine((d) => d.passwordNueva !== d.passwordActual, {
+    message: "La nueva contraseña debe ser distinta de la actual",
+  });
+
 export const actualizarUsuarioSchema = z
   .object({
     nombre: z.string().trim().min(1).max(120).optional(),
@@ -57,3 +70,4 @@ export type CrearUsuarioInput = z.infer<typeof crearUsuarioSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type RefreshTokenInput = z.infer<typeof refreshTokenSchema>;
 export type ActualizarUsuarioInput = z.infer<typeof actualizarUsuarioSchema>;
+export type CambiarPasswordInput = z.infer<typeof cambiarPasswordSchema>;
