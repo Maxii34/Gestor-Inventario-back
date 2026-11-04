@@ -855,12 +855,19 @@ export type ResultadoCargaMasiva =
   | { ok: true; creados: number };
 
 const erroresDeParseo = (
-  issues: { path: (string | number)[]; message: string }[],
+  issues: readonly { path: readonly PropertyKey[]; message: string }[],
   fila: number
 ): ErrorFilaCarga[] =>
   issues.map((issue) => ({
     fila,
-    campo: issue.path.length > 0 ? issue.path.join(".") : undefined,
+    campo:
+      issue.path.length > 0
+        ? issue.path
+            .map((segmento) =>
+              typeof segmento === "symbol" ? segmento.toString() : String(segmento)
+            )
+            .join(".")
+        : undefined,
     mensaje: issue.message,
   }));
 

@@ -121,8 +121,20 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)("integración HTTP: aislamiento entre comerc
       expect(res.status, ruta).toBe(200);
       return res.body.data;
     };
+    const leerCategoria = async () => {
+      // El detalle incluye productos relacionados, que los tests de barras crean legítimamente en A.
+      const res = await llamar("get", "/categorias?limit=100", A.token);
+      expect(res.status, "/categorias?limit=100").toBe(200);
+      const categoria = (res.body.data as { id: number }[]).find(
+        (item) => item.id === A.categoriaId
+      );
+      if (!categoria) {
+        throw new Error(`Categoría ${A.categoriaId} no encontrada en el listado`);
+      }
+      return categoria;
+    };
     return {
-      categoria: await leer(`/categorias/${A.categoriaId}`),
+      categoria: await leerCategoria(),
       producto: await leer(`/productos/${A.productoId}`),
       cliente: await leer(`/clientes/${A.clienteId}`),
       proveedor: await leer(`/proveedores/${A.proveedorId}`),
@@ -822,7 +834,7 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)("integración HTTP: aislamiento entre comerc
 
   // ------------------------------------------------------------------ 11
   describe("invariante final", () => {
-    it("tras todos los ataques, lo de A es exactamente igual que al empezar", async () => {
+    it("tras todos los ataques, los recursos originales de A siguen iguales", async () => {
       const ahora = await leerEstadoA();
       expect(ahora).toEqual(snapshotA);
     });

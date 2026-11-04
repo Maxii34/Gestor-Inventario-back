@@ -63,6 +63,7 @@ const usuarioFalso = {
   password: "hash-guardado-en-bd",
   rol: "ADMIN" as const,
   activo: true,
+  debeCambiarPassword: false,
   comercioId: 1,
   fechaCreacion: new Date(),
   fechaActualizacion: new Date(),
