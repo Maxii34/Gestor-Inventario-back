@@ -626,7 +626,7 @@ const snapshotUsuario = (usuario: {
 });
 
 const ALFABETO_PASSWORD_TEMPORAL =
-  "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
 
 const generarPasswordTemporal = () => {
   let password = "";
