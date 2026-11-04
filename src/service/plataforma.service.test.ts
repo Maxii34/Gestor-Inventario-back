@@ -4,6 +4,8 @@ import jwt from "jsonwebtoken";
 import { plataformaService } from "./plataforma.service";
 import { plataformaRepository } from "../repositores/plataforma.repository";
 import { superadminRepository } from "../repositores/superadmin.repository";
+import { categoriaRepository } from "../repositores/categoria.repository";
+import { productoRepository } from "../repositores/producto.repository";
 import { comercioService } from "./comercio.service";
 import { prisma } from "../config/prisma";
 import {
@@ -16,6 +18,8 @@ import { calcularNuevoAcceso } from "../utils/suscripcion";
 
 vi.mock("../repositores/plataforma.repository");
 vi.mock("../repositores/superadmin.repository");
+vi.mock("../repositores/categoria.repository");
+vi.mock("../repositores/producto.repository");
 vi.mock("./comercio.service");
 vi.mock("bcrypt");
 vi.mock("jsonwebtoken");
@@ -689,5 +693,409 @@ describe("plataformaService.obtenerMetricas", () => {
     expect(resultado.pruebasPorVencer7Dias).toBe(1);
     expect(resultado.sinIngreso30Dias).toBe(2);
     expect(resultado.pagosMes).toEqual([{ moneda: "ARS", total: 25000 }]);
+  });
+});
+
+const USUARIO_PLATAFORMA = {
+  id: 1,
+  nombre: "Vendedor",
+  email: "vendedor@test.com",
+  password: "hash-guardado-en-bd",
+  rol: "VENDEDOR" as const,
+  activo: true,
+  debeCambiarPassword: false,
+  fechaCreacion: new Date("2025-11-01T12:00:00.000Z"),
+};
+
+describe("plataformaService.editarUsuarioComercio", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(plataformaRepository.findComercioById).mockResolvedValue(
+      COMERCIO as never
+    );
+  });
+
+  it("no permite desactivar al único ADMIN activo", async () => {
+    vi.mocked(plataformaRepository.findUsuarioDeComercio).mockResolvedValue({
+      ...USUARIO_PLATAFORMA,
+      rol: "ADMIN",
+    } as never);
+    vi.mocked(plataformaRepository.findUsuariosActivosPorRol).mockResolvedValue([
+      { id: 1 },
+    ] as never);
+
+    await expect(
+      plataformaService.editarUsuarioComercio(5, 1, { activo: false }, 7, null)
+    ).rejects.toThrow(ConflictError);
+
+    expect(plataformaRepository.updateUsuario).not.toHaveBeenCalled();
+    expect(plataformaRepository.crearAuditoria).not.toHaveBeenCalled();
+  });
+
+  it("no permite ascender a ADMIN si ya hay otro admin activo", async () => {
+    vi.mocked(plataformaRepository.findUsuarioDeComercio).mockResolvedValue(
+      USUARIO_PLATAFORMA as never
+    );
+    vi.mocked(plataformaRepository.findUsuariosActivosPorRol).mockResolvedValue([
+      { id: 2 },
+    ] as never);
+
+    await expect(
+      plataformaService.editarUsuarioComercio(5, 1, { rol: "ADMIN" }, 7, null)
+    ).rejects.toThrow(ConflictError);
+    expect(plataformaRepository.updateUsuario).not.toHaveBeenCalled();
+  });
+
+  it("rechaza un email duplicado dentro del comercio", async () => {
+    vi.mocked(plataformaRepository.findUsuarioDeComercio).mockResolvedValue(
+      USUARIO_PLATAFORMA as never
+    );
+    vi.mocked(plataformaRepository.findUsuarioPorEmail).mockResolvedValue({
+      id: 2,
+    } as never);
+
+    await expect(
+      plataformaService.editarUsuarioComercio(
+        5,
+        1,
+        { email: "OTRO@test.com" },
+        7,
+        null
+      )
+    ).rejects.toThrow(ConflictError);
+
+    expect(plataformaRepository.findUsuarioPorEmail).toHaveBeenCalledWith(
+      5,
+      "otro@test.com",
+      tx
+    );
+    expect(plataformaRepository.updateUsuario).not.toHaveBeenCalled();
+  });
+
+  it("edita y audita antes/después sin incluir contraseñas", async () => {
+    vi.mocked(plataformaRepository.findUsuarioDeComercio).mockResolvedValue(
+      USUARIO_PLATAFORMA as never
+    );
+    vi.mocked(plataformaRepository.findUsuarioPorEmail).mockResolvedValue(null);
+    vi.mocked(plataformaRepository.updateUsuario).mockResolvedValue({
+      ...USUARIO_PLATAFORMA,
+      nombre: "Nuevo nombre",
+      email: "nuevo@test.com",
+    } as never);
+    vi.mocked(plataformaRepository.crearAuditoria).mockResolvedValue({} as never);
+
+    const resultado = await plataformaService.editarUsuarioComercio(
+      5,
+      1,
+      { nombre: "Nuevo nombre", email: "NUEVO@test.com" },
+      7,
+      "127.0.0.1"
+    );
+
+    expect(resultado.nombre).toBe("Nuevo nombre");
+    expect(plataformaRepository.updateUsuario).toHaveBeenCalledWith(
+      1,
+      5,
+      { nombre: "Nuevo nombre", email: "nuevo@test.com" },
+      tx
+    );
+
+    const auditoria = vi.mocked(plataformaRepository.crearAuditoria).mock
+      .calls[0][0];
+    expect(auditoria.accion).toBe("EDITAR_USUARIO");
+    expect(auditoria.detalle).toHaveProperty("antes");
+    expect(auditoria.detalle).toHaveProperty("despues");
+    expect(JSON.stringify(auditoria)).not.toContain("password");
+  });
+});
+
+describe("plataformaService.resetearPasswordUsuario", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(plataformaRepository.findComercioById).mockResolvedValue(
+      COMERCIO as never
+    );
+    vi.mocked(plataformaRepository.findUsuarioDeComercio).mockResolvedValue(
+      USUARIO_PLATAFORMA as never
+    );
+    vi.mocked(bcrypt.hash).mockResolvedValue("hash-temporal" as never);
+    vi.mocked(plataformaRepository.updateUsuario).mockResolvedValue(
+      USUARIO_PLATAFORMA as never
+    );
+    vi.mocked(
+      plataformaRepository.revocarRefreshTokensDeUsuario
+    ).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(plataformaRepository.crearAuditoria).mockResolvedValue({} as never);
+  });
+
+  it("genera una temporal de 12 caracteres sin ambiguos y audita solo el usuarioId", async () => {
+    const resultado = await plataformaService.resetearPasswordUsuario(
+      5,
+      1,
+      7,
+      "127.0.0.1"
+    );
+
+    expect(resultado.passwordTemporal).toHaveLength(12);
+    expect(resultado.passwordTemporal).toMatch(/^[A-HJ-NP-Za-km-z2-9]+$/);
+    expect(resultado.passwordTemporal).not.toMatch(/[0Oo1lI]/);
+    expect(bcrypt.hash).toHaveBeenCalledWith(
+      resultado.passwordTemporal,
+      10
+    );
+
+    expect(plataformaRepository.updateUsuario).toHaveBeenCalledWith(
+      1,
+      5,
+      { password: "hash-temporal", debeCambiarPassword: true },
+      tx
+    );
+    expect(
+      plataformaRepository.revocarRefreshTokensDeUsuario
+    ).toHaveBeenCalledWith(1, tx);
+
+    const auditoria = vi.mocked(plataformaRepository.crearAuditoria).mock
+      .calls[0][0];
+    expect(auditoria.accion).toBe("RESETEAR_PASSWORD");
+    expect(auditoria.detalle).toEqual({ usuarioId: 1 });
+    expect(JSON.stringify(auditoria)).not.toContain(
+      resultado.passwordTemporal
+    );
+    expect(JSON.stringify(auditoria)).not.toContain("hash-temporal");
+  });
+});
+
+describe("plataformaService.cargaMasivaCategorias", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(plataformaRepository.findComercioById).mockResolvedValue(
+      COMERCIO as never
+    );
+    vi.mocked(categoriaRepository.findAllParaCargaMasiva).mockResolvedValue(
+      [] as never
+    );
+    vi.mocked(categoriaRepository.create).mockResolvedValue({} as never);
+    vi.mocked(plataformaRepository.crearAuditoria).mockResolvedValue({} as never);
+  });
+
+  it("rechaza menos de 1 y más de 50 filas", async () => {
+    await expect(
+      plataformaService.cargaMasivaCategorias(5, { categorias: [] }, 7, null)
+    ).rejects.toThrow(BadRequestError);
+
+    const cincuentaYUno = Array.from({ length: 51 }, (_, i) => ({
+      nombre: `Categoría ${i}`,
+    }));
+    await expect(
+      plataformaService.cargaMasivaCategorias(
+        5,
+        { categorias: cincuentaYUno },
+        7,
+        null
+      )
+    ).rejects.toThrow(BadRequestError);
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("valida cada fila y devuelve todos los errores sin escribir", async () => {
+    const resultado = await plataformaService.cargaMasivaCategorias(
+      5,
+      {
+        categorias: [
+          { nombre: "Válida" },
+          { nombre: "" },
+          { nombre: "Otra", descripcion: "x".repeat(201) },
+        ],
+      },
+      7,
+      null
+    );
+
+    expect(resultado.ok).toBe(false);
+    if (!resultado.ok) {
+      expect(resultado.errores.map((error) => error.fila)).toEqual(
+        expect.arrayContaining([2, 3])
+      );
+      expect(resultado.errores).toHaveLength(2);
+    }
+    expect(categoriaRepository.create).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("detecta duplicados internos y contra lo ya existente", async () => {
+    vi.mocked(categoriaRepository.findAllParaCargaMasiva).mockResolvedValue([
+      { id: 1, nombre: "Existente" },
+    ] as never);
+
+    const resultado = await plataformaService.cargaMasivaCategorias(
+      5,
+      {
+        categorias: [
+          { nombre: "Nueva" },
+          { nombre: "nueva" },
+          { nombre: "existente" },
+        ],
+      },
+      7,
+      null
+    );
+
+    expect(resultado.ok).toBe(false);
+    if (!resultado.ok) {
+      expect(resultado.errores).toHaveLength(2);
+      expect(resultado.errores[0].fila).toBe(2);
+      expect(resultado.errores[1].fila).toBe(3);
+    }
+    expect(categoriaRepository.create).not.toHaveBeenCalled();
+  });
+
+  it("con simular valida pero no escribe ni audita", async () => {
+    const resultado = await plataformaService.cargaMasivaCategorias(
+      5,
+      { categorias: [{ nombre: "A" }, { nombre: "B" }], simular: true },
+      7,
+      null
+    );
+
+    expect(resultado).toEqual({ ok: true, validas: 2, simulacion: true });
+    expect(categoriaRepository.create).not.toHaveBeenCalled();
+    expect(plataformaRepository.crearAuditoria).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("crea en una transacción y audita solo cantidad/simulación", async () => {
+    const resultado = await plataformaService.cargaMasivaCategorias(
+      5,
+      { categorias: [{ nombre: "A" }, { nombre: "B" }] },
+      7,
+      "127.0.0.1"
+    );
+
+    expect(resultado).toEqual({ ok: true, creados: 2 });
+    expect(prisma.$transaction).toHaveBeenCalledOnce();
+    expect(categoriaRepository.create).toHaveBeenCalledTimes(2);
+    expect(plataformaRepository.crearAuditoria).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accion: "CARGA_MASIVA_CATEGORIAS",
+        detalle: { cantidad: 2, simulacion: false },
+        ip: "127.0.0.1",
+        superadminId: 7,
+        comercioId: 5,
+      }),
+      tx
+    );
+  });
+});
+
+describe("plataformaService.cargaMasivaProductos", () => {
+  const productoValido = {
+    nombre: "Producto masivo",
+    precioCompra: 10,
+    precioVenta: 20,
+    stock: 5,
+    categoria: "Bebidas",
+    codigoBarras: "COD-MASIVO",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(plataformaRepository.findComercioById).mockResolvedValue(
+      COMERCIO as never
+    );
+    vi.mocked(productoRepository.findAllParaCargaMasiva).mockResolvedValue(
+      [] as never
+    );
+    vi.mocked(categoriaRepository.findAllParaCargaMasiva).mockResolvedValue([
+      { id: 3, nombre: "Bebidas" },
+    ] as never);
+    vi.mocked(productoRepository.create).mockResolvedValue({} as never);
+    vi.mocked(plataformaRepository.crearAuditoria).mockResolvedValue({} as never);
+  });
+
+  it("valida precio y categoría inexistente por fila", async () => {
+    const resultado = await plataformaService.cargaMasivaProductos(
+      5,
+      {
+        productos: [
+          { ...productoValido, precioVenta: 5 },
+          { ...productoValido, nombre: "Otro", categoria: "NoExiste" },
+        ],
+      },
+      7,
+      null
+    );
+
+    expect(resultado.ok).toBe(false);
+    if (!resultado.ok) {
+      expect(
+        resultado.errores.some((error) => error.campo === "precioVenta")
+      ).toBe(true);
+      expect(
+        resultado.errores.some((error) => error.campo === "categoria")
+      ).toBe(true);
+    }
+    expect(productoRepository.create).not.toHaveBeenCalled();
+  });
+
+  it("detecta duplicados internos y contra lo existente", async () => {
+    vi.mocked(productoRepository.findAllParaCargaMasiva).mockResolvedValue([
+      { id: 9, nombre: "Existente", codigoBarras: "EXISTE" },
+    ] as never);
+
+    const resultado = await plataformaService.cargaMasivaProductos(
+      5,
+      {
+        productos: [
+          { ...productoValido, nombre: "Nuevo", codigoBarras: "COD1" },
+          { ...productoValido, nombre: "nuevo", codigoBarras: "COD1" },
+          {
+            ...productoValido,
+            nombre: "Existente",
+            codigoBarras: "EXISTE",
+          },
+        ],
+      },
+      7,
+      null
+    );
+
+    expect(resultado.ok).toBe(false);
+    if (!resultado.ok) {
+      expect(resultado.errores.some((error) => error.fila === 2)).toBe(true);
+      expect(resultado.errores.some((error) => error.fila === 3)).toBe(true);
+      expect(
+        resultado.errores.filter((error) => error.campo === "codigoBarras")
+          .length
+      ).toBeGreaterThanOrEqual(2);
+    }
+    expect(productoRepository.create).not.toHaveBeenCalled();
+  });
+
+  it("con simular valida pero no escribe ni audita", async () => {
+    const resultado = await plataformaService.cargaMasivaProductos(
+      5,
+      { productos: [productoValido], simular: true },
+      7,
+      null
+    );
+
+    expect(resultado).toEqual({ ok: true, validas: 1, simulacion: true });
+    expect(productoRepository.create).not.toHaveBeenCalled();
+    expect(plataformaRepository.crearAuditoria).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("rechaza más de 50 productos", async () => {
+    const productos = Array.from({ length: 51 }, (_, i) => ({
+      ...productoValido,
+      nombre: `Producto ${i}`,
+      codigoBarras: `COD-${i}`,
+    }));
+
+    await expect(
+      plataformaService.cargaMasivaProductos(5, { productos }, 7, null)
+    ).rejects.toThrow(BadRequestError);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 });

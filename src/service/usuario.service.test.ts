@@ -11,6 +11,7 @@ import {
   ConflictError,
   UnauthorizedError,
   ForbiddenError,
+  BadRequestError,
 } from "../utils/errors";
 
 vi.mock("../repositores/usuario.repository");
@@ -462,5 +463,75 @@ describe("refresh tokens guardados como hash", () => {
     expect(refreshTokenRepository.findByToken).toHaveBeenCalledWith(
       sha256("token-en-claro")
     );
+  });
+});
+
+describe("usuarioService.cambiarPassword", () => {
+  const usuarioConPassword = {
+    id: 1,
+    password: "hash-viejo",
+    rol: "ADMIN" as const,
+    activo: true,
+    comercioId: 1,
+    debeCambiarPassword: false,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(usuarioRepository.findByIdConPassword).mockResolvedValue(
+      usuarioConPassword as any
+    );
+  });
+
+  it("responde 401 genérico si la contraseña actual no coincide", async () => {
+    vi.mocked(bcrypt.compare).mockResolvedValue(false as never);
+
+    await expect(
+      usuarioService.cambiarPassword(1, 1, {
+        passwordActual: "incorrecta",
+        passwordNueva: "nueva123",
+      })
+    ).rejects.toThrow(UnauthorizedError);
+
+    expect(usuarioRepository.update).not.toHaveBeenCalled();
+    expect(refreshTokenRepository.revocarTodosDeUsuario).not.toHaveBeenCalled();
+  });
+
+  it("rechaza una nueva contraseña igual a la actual", async () => {
+    vi.mocked(bcrypt.compare).mockResolvedValue(true as never);
+
+    await expect(
+      usuarioService.cambiarPassword(1, 1, {
+        passwordActual: "actual123",
+        passwordNueva: "actual123",
+      })
+    ).rejects.toThrow(BadRequestError);
+
+    expect(usuarioRepository.update).not.toHaveBeenCalled();
+  });
+
+  it("guarda el hash, limpia el flag, revoca tokens y devuelve tokens nuevos", async () => {
+    vi.mocked(bcrypt.compare).mockResolvedValue(true as never);
+    vi.mocked(bcrypt.hash).mockResolvedValue("hash-nuevo" as never);
+    vi.mocked(usuarioRepository.update).mockResolvedValue({} as any);
+    vi.mocked(refreshTokenRepository.revocarTodosDeUsuario).mockResolvedValue(
+      {} as any
+    );
+    vi.mocked(refreshTokenRepository.create).mockResolvedValue({} as any);
+    vi.mocked(jwt.sign).mockReturnValue("access-nuevo" as never);
+
+    const resultado = await usuarioService.cambiarPassword(1, 1, {
+      passwordActual: "actual123",
+      passwordNueva: "nueva123",
+    });
+
+    expect(bcrypt.hash).toHaveBeenCalledWith("nueva123", 10);
+    expect(usuarioRepository.update).toHaveBeenCalledWith(1, 1, {
+      password: "hash-nuevo",
+      debeCambiarPassword: false,
+    });
+    expect(refreshTokenRepository.revocarTodosDeUsuario).toHaveBeenCalledWith(1);
+    expect(resultado.accessToken).toBe("access-nuevo");
+    expect(resultado.refreshToken).toBeDefined();
   });
 });
