@@ -1,0 +1,8 @@
+-- AlterEnum
+ALTER TYPE "AccionPlataforma" ADD VALUE 'EDITAR_USUARIO';
+ALTER TYPE "AccionPlataforma" ADD VALUE 'RESETEAR_PASSWORD';
+ALTER TYPE "AccionPlataforma" ADD VALUE 'CARGA_MASIVA_CATEGORIAS';
+ALTER TYPE "AccionPlataforma" ADD VALUE 'CARGA_MASIVA_PRODUCTOS';
+
+-- AlterTable
+ALTER TABLE "Usuario" ADD COLUMN     "debeCambiarPassword" BOOLEAN NOT NULL DEFAULT false;
