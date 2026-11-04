@@ -248,7 +248,7 @@ describe("productoService.update: costo por paquete", () => {
     precioCompra: 71.4286,
     precioCompraPaquete: 5000,
     unidadesPorPaquete: 70,
-    precioVenta: 100,
+    precioVenta: 120,
   };
 
   beforeEach(() => {
@@ -297,7 +297,7 @@ describe("productoService.update: costo por paquete", () => {
 
   it("valida el margen con el costo recalculado antes de guardar", async () => {
     await expect(
-      productoService.update(10, 1, { precioCompraPaquete: 8000 })
+      productoService.update(10, 1, { precioCompraPaquete: 9000 })
     ).rejects.toThrow(BadRequestError);
 
     expect(productoRepository.update).not.toHaveBeenCalled();
