@@ -841,7 +841,7 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)("integración HTTP: aislamiento entre comerc
         nombre: `Producto paquete ${sufijo}`,
         precioCompraPaquete: 5000,
         unidadesPorPaquete: 70,
-        precioVenta: 100,
+        precioVenta: 200,
         stock: 5,
         categoriaId: A.categoriaId,
       });

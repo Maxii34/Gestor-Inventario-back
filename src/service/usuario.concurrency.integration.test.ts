@@ -75,8 +75,14 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)("integración PG: un ADMIN activo por comerc
     );
     expect(exitos).toHaveLength(1);
     expect(rechazos).toHaveLength(1);
-    // P2002 = violación de unicidad; el errorHandler la traduce a un 409.
-    expect(rechazos[0].reason).toMatchObject({ code: "P2002" });
+    // La carrera puede detectarse en el chequeo del service o en el índice único.
+    const error = rechazos[0].reason;
+    expect(
+      error?.code === "P2002" ||
+        (error instanceof Error &&
+          "statusCode" in error &&
+          error.statusCode === 409)
+    ).toBe(true);
     expect(await adminsActivos(comercioId)).toBe(1);
   });
 
