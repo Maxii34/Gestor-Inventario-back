@@ -1,12 +1,19 @@
 import { productoRepository } from "../repositores/producto.repository";
 import { categoriaRepository } from "../repositores/categoria.repository";
+import { Prisma } from "../generated/prisma/client";
+import {
+  calcularPrecioCompraPorUnidad,
+  resolverPreciosProducto,
+} from "../utils/precioProducto";
 import { NotFoundError, BadRequestError, ConflictError } from "../utils/errors";
 
 interface CrearProductoDTO {
   nombre: string;
   descripcion?: string;
   codigoBarras?: string | null;
-  precioCompra: number;
+  precioCompra?: number;
+  precioCompraPaquete?: number | null;
+  unidadesPorPaquete?: number;
   precioVenta: number;
   stock?: number;
   stockMinimo?: number;
@@ -50,17 +57,17 @@ export const productoService = {
   },
 
   create: async (data: CrearProductoDTO, comercioId: number) => {
-    if (
-      !data.nombre ||
-      !data.precioCompra ||
-      !data.precioVenta ||
-      data.stock === undefined
-    ) {
+    if (!data.nombre || !data.precioVenta || data.stock === undefined) {
       throw new BadRequestError(
-        "Nombre, precio de compra, precio de venta y stock son obligatorios",
+        "Nombre, precio de venta y stock son obligatorios",
       );
     }
-    if (data.precioVenta <= data.precioCompra) {
+
+    // Resuelve el costo por unidad a partir del precio de la caja o del costo
+    // unitario enviado. Se hace con Decimal para no arrastrar errores de float
+    // al guardar 4 decimales.
+    const precios = resolverPreciosProducto(data);
+    if (!new Prisma.Decimal(data.precioVenta).gt(precios.precioCompra)) {
       throw new BadRequestError(
         "El precio de venta debe ser mayor al de compra",
       );
@@ -90,6 +97,9 @@ export const productoService = {
 
     return productoRepository.create({
       ...resto,
+      precioCompra: precios.precioCompra,
+      precioCompraPaquete: precios.precioCompraPaquete,
+      unidadesPorPaquete: precios.unidadesPorPaquete,
       activo: true,
       comercio: { connect: { id: comercioId } },
       categoria: { connect: { id: categoriaId } },
@@ -116,11 +126,45 @@ export const productoService = {
       }
     }
 
-    const nuevoPrecioCompra =
-      data.precioCompra ?? productoExistente.precioCompra;
-    const nuevoPrecioVenta = data.precioVenta ?? productoExistente.precioVenta;
+    const envioCostoUnidad = data.precioCompra !== undefined;
+    const envioPrecioPaquete =
+      data.precioCompraPaquete !== undefined &&
+      data.precioCompraPaquete !== null;
 
-    if (Number(nuevoPrecioVenta) <= Number(nuevoPrecioCompra)) {
+    if (envioCostoUnidad && envioPrecioPaquete) {
+      throw new BadRequestError(
+        "Enviá el costo por unidad o el costo del paquete, no ambos",
+      );
+    }
+
+    const unidadesActuales =
+      (productoExistente.unidadesPorPaquete as number | undefined) ?? 1;
+    const unidadesResultantes = data.unidadesPorPaquete ?? unidadesActuales;
+
+    const paqueteResultante =
+      data.precioCompraPaquete !== undefined
+        ? data.precioCompraPaquete
+        : (productoExistente.precioCompraPaquete as
+            | Prisma.Decimal
+            | null
+            | undefined) ?? null;
+
+    let costoResultante: Prisma.Decimal;
+    if (envioCostoUnidad) {
+      costoResultante = new Prisma.Decimal(data.precioCompra!);
+    } else if (paqueteResultante !== null) {
+      costoResultante = calcularPrecioCompraPorUnidad(
+        paqueteResultante,
+        unidadesResultantes,
+      );
+    } else {
+      costoResultante = new Prisma.Decimal(productoExistente.precioCompra);
+    }
+
+    const nuevoPrecioVenta =
+      data.precioVenta ?? productoExistente.precioVenta;
+
+    if (!new Prisma.Decimal(nuevoPrecioVenta).gt(costoResultante)) {
       throw new BadRequestError(
         "El precio de venta debe ser mayor al de compra",
       );
@@ -137,8 +181,23 @@ export const productoService = {
     }
 
     const { categoriaId, ...resto } = data;
-    return productoRepository.update(id, comercioId, {
+    const datosActualizacion: Prisma.ProductoUncheckedUpdateInput = {
       ...resto,
+      precioCompra: costoResultante,
+      unidadesPorPaquete: unidadesResultantes,
+    };
+
+    if (envioCostoUnidad) {
+      datosActualizacion.precioCompraPaquete = null;
+    } else if (data.precioCompraPaquete !== undefined) {
+      datosActualizacion.precioCompraPaquete =
+        data.precioCompraPaquete === null
+          ? null
+          : new Prisma.Decimal(data.precioCompraPaquete);
+    }
+
+    return productoRepository.update(id, comercioId, {
+      ...datosActualizacion,
       ...(categoriaId !== undefined
         ? { categoria: { connect: { id: categoriaId } } }
         : {}),
