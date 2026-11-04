@@ -4,7 +4,7 @@ import { BadRequestError } from "./errors";
 export const DECIMALES_COSTO_UNIDAD = 4;
 
 export const calcularPrecioCompraPorUnidad = (
-  precioCompraPaquete: Prisma.Decimal.Value,
+  precioCompraPaquete: ConstructorParameters<typeof Prisma.Decimal>[0],
   unidadesPorPaquete: number,
 ): Prisma.Decimal =>
   new Prisma.Decimal(precioCompraPaquete)
