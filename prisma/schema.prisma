@@ -60,15 +60,17 @@ model Categoria {
 }
 
 model Producto {
-  id           Int     @id @default(autoincrement())
-  nombre       String
-  descripcion  String?
-  codigoBarras String?
-  precioCompra Decimal @db.Decimal(10, 2)
-  precioVenta  Decimal @db.Decimal(10, 2)
-  stock        Int     @default(0)
-  stockMinimo  Int     @default(0)
-  activo       Boolean @default(true)
+  id                  Int      @id @default(autoincrement())
+  nombre              String
+  descripcion         String?
+  codigoBarras        String?
+  precioCompra        Decimal  @db.Decimal(12, 4)
+  precioCompraPaquete Decimal? @db.Decimal(12, 2)
+  unidadesPorPaquete  Int      @default(1)
+  precioVenta         Decimal  @db.Decimal(10, 2)
+  stock               Int      @default(0)
+  stockMinimo         Int      @default(0)
+  activo              Boolean  @default(true)
 
   comercioId Int
   comercio   Comercio @relation(fields: [comercioId], references: [id], onDelete: Restrict)
