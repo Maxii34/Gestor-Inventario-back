@@ -1,5 +1,15 @@
 import { z } from "zod";
 
+export const codigoBarrasSchema = z
+  .string({ error: "El código de barras debe ser un texto" })
+  .trim()
+  .min(1, "El código de barras no puede estar vacío")
+  .max(64, "El código de barras no puede superar los 64 caracteres")
+  .regex(
+    /^[\x21-\x7E]+$/,
+    "El código de barras solo puede contener caracteres imprimibles sin espacios",
+  );
+
 export const productoSchema = z.object({
   nombre: z
     .string({ error: "El nombre es obligatorio" })
@@ -11,6 +21,8 @@ export const productoSchema = z.object({
     .string()
     .trim()
     .optional(),
+
+  codigoBarras: codigoBarrasSchema.optional(),
 
   precioCompra: z
     .number({ error: "El precio de compra es obligatorio" })
@@ -28,7 +40,9 @@ export const productoSchema = z.object({
   categoriaId: z.number({ error: "La categoría es obligatoria" }),
 });
 
-export const updateProductoSchema = productoSchema.partial();
+export const updateProductoSchema = productoSchema.partial().extend({
+  codigoBarras: codigoBarrasSchema.nullable().optional(),
+});
 
 export type CreateProductoInput = z.infer<typeof productoSchema>;
 export type UpdateProductoInput = z.infer<typeof updateProductoSchema>;

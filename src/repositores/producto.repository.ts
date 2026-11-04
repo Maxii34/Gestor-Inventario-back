@@ -21,6 +21,12 @@ export const productoRepository = {
       include: { categoria: true },
     }),
 
+  findByCodigoBarras: (comercioId: number, codigoBarras: string, tx?: PrismaTx) =>
+    (tx ?? prisma).producto.findFirst({
+      where: { comercioId, codigoBarras },
+      include: { categoria: true },
+    }),
+
   create: (data: Prisma.ProductoCreateInput, tx?: PrismaTx) =>
     (tx ?? prisma).producto.create({ data }),
 

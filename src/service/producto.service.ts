@@ -1,10 +1,11 @@
 import { productoRepository } from "../repositores/producto.repository";
 import { categoriaRepository } from "../repositores/categoria.repository";
-import { NotFoundError, BadRequestError } from "../utils/errors";
+import { NotFoundError, BadRequestError, ConflictError } from "../utils/errors";
 
 interface CrearProductoDTO {
   nombre: string;
   descripcion?: string;
+  codigoBarras?: string | null;
   precioCompra: number;
   precioVenta: number;
   stock?: number;
@@ -37,6 +38,17 @@ export const productoService = {
     return producto;
   },
 
+  getByCodigoBarras: async (codigoBarras: string, comercioId: number) => {
+    const producto = await productoRepository.findByCodigoBarras(
+      comercioId,
+      codigoBarras,
+    );
+    if (!producto) {
+      throw new NotFoundError("Producto no encontrado");
+    }
+    return producto;
+  },
+
   create: async (data: CrearProductoDTO, comercioId: number) => {
     if (
       !data.nombre ||
@@ -62,6 +74,16 @@ export const productoService = {
     );
     if (!categoria) {
       throw new NotFoundError("Categoría no encontrada");
+    }
+
+    if (data.codigoBarras) {
+      const existente = await productoRepository.findByCodigoBarras(
+        comercioId,
+        data.codigoBarras,
+      );
+      if (existente) {
+        throw new ConflictError("Ya existe un producto con ese código de barras");
+      }
     }
 
     const { categoriaId, ...resto } = data;
@@ -102,6 +124,16 @@ export const productoService = {
       throw new BadRequestError(
         "El precio de venta debe ser mayor al de compra",
       );
+    }
+
+    if (data.codigoBarras !== undefined && data.codigoBarras !== null) {
+      const existente = await productoRepository.findByCodigoBarras(
+        comercioId,
+        data.codigoBarras,
+      );
+      if (existente && existente.id !== id) {
+        throw new ConflictError("Ya existe un producto con ese código de barras");
+      }
     }
 
     const { categoriaId, ...resto } = data;
