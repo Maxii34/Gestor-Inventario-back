@@ -703,6 +703,124 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)("integración HTTP: aislamiento entre comerc
   });
 
   // ------------------------------------------------------------------ 10
+  describe("código de barras", () => {
+    const codigoA = `COD-A-${sufijo}`;
+    let productoConCodigoA: number;
+    let productoSinCodigoA: number;
+
+    it("crea un producto con código de barras", async () => {
+      productoConCodigoA = await crear("/productos", A.token, {
+        nombre: `Producto código A ${sufijo}`,
+        precioCompra: 10,
+        precioVenta: 20,
+        stock: 1,
+        categoriaId: A.categoriaId,
+        codigoBarras: codigoA,
+      });
+    });
+
+    it("busca con el token del mismo comercio (200)", async () => {
+      const res = await llamar(
+        "get",
+        `/productos/codigo/${encodeURIComponent(codigoA)}`,
+        A.token
+      );
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+      expect(res.body.data.id).toBe(productoConCodigoA);
+      expect(res.body.data.codigoBarras).toBe(codigoA);
+    });
+
+    it("el comercio B recibe 404 al buscar el código de A", async () => {
+      const res = await llamar(
+        "get",
+        `/productos/codigo/${encodeURIComponent(codigoA)}`,
+        B.token
+      );
+      expect(res.status).toBe(404);
+    });
+
+    it("el mismo código se puede crear en B (201) pero no repetirlo en A (409)", async () => {
+      const enB = await llamar("post", "/productos", B.token, {
+        nombre: `Producto código B ${sufijo}`,
+        precioCompra: 10,
+        precioVenta: 20,
+        stock: 1,
+        categoriaId: B.categoriaId,
+        codigoBarras: codigoA,
+      });
+      expect(enB.status, JSON.stringify(enB.body)).toBe(201);
+
+      const repetidoEnA = await llamar("post", "/productos", A.token, {
+        nombre: `Producto código repetido ${sufijo}`,
+        precioCompra: 10,
+        precioVenta: 20,
+        stock: 1,
+        categoriaId: A.categoriaId,
+        codigoBarras: codigoA,
+      });
+      expect(repetidoEnA.status).toBe(409);
+    });
+
+    it("actualizar un producto de A con el código de otro de A da 409", async () => {
+      productoSinCodigoA = await crear("/productos", A.token, {
+        nombre: `Producto sin código ${sufijo}`,
+        precioCompra: 10,
+        precioVenta: 20,
+        stock: 1,
+        categoriaId: A.categoriaId,
+      });
+
+      const res = await llamar("put", `/productos/${productoSinCodigoA}`, A.token, {
+        codigoBarras: codigoA,
+      });
+      expect(res.status).toBe(409);
+    });
+
+    it("null lo quita", async () => {
+      const codigoTemporal = `TEMP-${sufijo}`;
+      const productoId = await crear("/productos", A.token, {
+        nombre: `Producto código temporal ${sufijo}`,
+        precioCompra: 10,
+        precioVenta: 20,
+        stock: 1,
+        categoriaId: A.categoriaId,
+        codigoBarras: codigoTemporal,
+      });
+
+      const res = await llamar("put", `/productos/${productoId}`, A.token, {
+        codigoBarras: null,
+      });
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+      expect(res.body.data.codigoBarras).toBeNull();
+
+      const busqueda = await llamar(
+        "get",
+        `/productos/codigo/${encodeURIComponent(codigoTemporal)}`,
+        A.token
+      );
+      expect(busqueda.status).toBe(404);
+    });
+
+    it("un código con espacios da 400", async () => {
+      const res = await llamar(
+        "get",
+        `/productos/codigo/${encodeURIComponent("COD A")}`,
+        A.token
+      );
+      expect(res.status).toBe(400);
+    });
+
+    it("VENDEDOR puede buscar (200)", async () => {
+      const res = await llamar(
+        "get",
+        `/productos/codigo/${encodeURIComponent(codigoA)}`,
+        A.vendedorToken
+      );
+      expect(res.status).toBe(200);
+    });
+  });
+
+  // ------------------------------------------------------------------ 11
   describe("invariante final", () => {
     it("tras todos los ataques, lo de A es exactamente igual que al empezar", async () => {
       const ahora = await leerEstadoA();
