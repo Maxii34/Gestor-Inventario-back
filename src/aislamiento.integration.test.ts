@@ -833,6 +833,129 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)("integración HTTP: aislamiento entre comerc
   });
 
   // ------------------------------------------------------------------ 11
+  describe("producto por paquete", () => {
+    let productoPorPaqueteId: number;
+
+    it("crea un producto con el costo de la caja y calcula el costo por unidad", async () => {
+      const res = await llamar("post", "/productos", A.token, {
+        nombre: `Producto paquete ${sufijo}`,
+        precioCompraPaquete: 5000,
+        unidadesPorPaquete: 70,
+        precioVenta: 100,
+        stock: 5,
+        categoriaId: A.categoriaId,
+      });
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
+      productoPorPaqueteId = res.body.data.id;
+      expect(res.body.data.precioCompra).toBe("71.4286");
+      expect(res.body.data.precioCompraPaquete).toBe("5000");
+      expect(res.body.data.unidadesPorPaquete).toBe(70);
+    });
+
+    it("lee el producto con el costo por unidad como texto", async () => {
+      const res = await llamar(
+        "get",
+        `/productos/${productoPorPaqueteId}`,
+        A.token
+      );
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+      expect(res.body.data.precioCompra).toBe("71.4286");
+      expect(res.body.data.precioCompraPaquete).toBe("5000");
+      expect(res.body.data.unidadesPorPaquete).toBe(70);
+    });
+
+    it("el alta clásica con precioCompra sigue funcionando", async () => {
+      const res = await llamar("post", "/productos", A.token, {
+        nombre: `Producto clasico ${sufijo}`,
+        precioCompra: 100,
+        precioVenta: 200,
+        stock: 3,
+        categoriaId: A.categoriaId,
+      });
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
+      expect(res.body.data.precioCompra).toBe("100");
+      expect(res.body.data.precioCompraPaquete).toBeNull();
+      expect(res.body.data.unidadesPorPaquete).toBe(1);
+    });
+
+    it("actualizar el precio del paquete recalcula el costo por unidad", async () => {
+      const res = await llamar(
+        "put",
+        `/productos/${productoPorPaqueteId}`,
+        A.token,
+        { precioCompraPaquete: 7000 }
+      );
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+      expect(res.body.data.precioCompra).toBe("100");
+      expect(res.body.data.precioCompraPaquete).toBe("7000");
+      expect(res.body.data.unidadesPorPaquete).toBe(70);
+    });
+
+    it("actualizar solo las unidades recalcula el costo por unidad", async () => {
+      const res = await llamar(
+        "put",
+        `/productos/${productoPorPaqueteId}`,
+        A.token,
+        { unidadesPorPaquete: 50 }
+      );
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+      expect(res.body.data.precioCompra).toBe("140");
+      expect(res.body.data.unidadesPorPaquete).toBe(50);
+    });
+
+    it("editar el costo por unidad limpia el precio del paquete", async () => {
+      const res = await llamar(
+        "put",
+        `/productos/${productoPorPaqueteId}`,
+        A.token,
+        { precioCompra: 60 }
+      );
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+      expect(res.body.data.precioCompra).toBe("60");
+      expect(res.body.data.precioCompraPaquete).toBeNull();
+      expect(res.body.data.unidadesPorPaquete).toBe(50);
+    });
+
+    it("enviar ambos costos da 400", async () => {
+      const res = await llamar("post", "/productos", A.token, {
+        nombre: `Producto ambos ${sufijo}`,
+        precioCompra: 10,
+        precioCompraPaquete: 1000,
+        unidadesPorPaquete: 10,
+        precioVenta: 20,
+        stock: 1,
+        categoriaId: A.categoriaId,
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it("el comercio B no ve ni toca el producto por paquete de A", async () => {
+      const lectura = await llamar(
+        "get",
+        `/productos/${productoPorPaqueteId}`,
+        B.token
+      );
+      expect(lectura.status).toBe(404);
+
+      const edicion = await llamar(
+        "put",
+        `/productos/${productoPorPaqueteId}`,
+        B.token,
+        { precioCompraPaquete: 1000 }
+      );
+      expect(edicion.status).toBe(404);
+
+      const deA = await llamar(
+        "get",
+        `/productos/${productoPorPaqueteId}`,
+        A.token
+      );
+      expect(deA.body.data.precioCompra).toBe("60");
+      expect(deA.body.data.precioCompraPaquete).toBeNull();
+    });
+  });
+
+  // ------------------------------------------------------------------ 12
   describe("invariante final", () => {
     it("tras todos los ataques, los recursos originales de A siguen iguales", async () => {
       const ahora = await leerEstadoA();
