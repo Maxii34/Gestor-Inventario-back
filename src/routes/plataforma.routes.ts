@@ -6,6 +6,7 @@ import { verificarSuperadmin } from "../middlewares/plataforma.middleware";
 import {
   cambiarPlanSchema,
   crearComercioPlataformaSchema,
+  editarUsuarioPlataformaSchema,
   extenderAccesoSchema,
   loginPlataformaSchema,
   registrarPagoSchema,
@@ -32,6 +33,22 @@ router.get(
   "/comercios/:id",
   verificarSuperadmin,
   plataformaController.getComercioById
+);
+router.get(
+  "/comercios/:id/usuarios",
+  verificarSuperadmin,
+  plataformaController.getUsuariosComercio
+);
+router.put(
+  "/comercios/:id/usuarios/:usuarioId",
+  verificarSuperadmin,
+  validate(editarUsuarioPlataformaSchema),
+  plataformaController.editarUsuarioComercio
+);
+router.post(
+  "/comercios/:id/usuarios/:usuarioId/resetear-password",
+  verificarSuperadmin,
+  plataformaController.resetearPasswordUsuario
 );
 router.post(
   "/comercios/:id/suspender",

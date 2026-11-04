@@ -156,6 +156,52 @@ export const plataformaController = {
     });
   },
 
+  getUsuariosComercio: async (req: Request, res: Response) => {
+    const { page, limit } = leerPaginacion(req.query);
+    const resultado = await plataformaService.listarUsuariosComercio(
+      parseId(req.params.id),
+      page,
+      limit,
+      queryString(req.query.q)
+    );
+    res.status(200).json({
+      ok: true,
+      mensaje: "Usuarios obtenidos",
+      data: resultado.data,
+      meta: resultado.meta,
+    });
+  },
+
+  editarUsuarioComercio: async (req: Request, res: Response) => {
+    const usuario = await plataformaService.editarUsuarioComercio(
+      parseId(req.params.id),
+      parseId(req.params.usuarioId),
+      req.body,
+      requireSuperadmin(req as PlataformaRequest),
+      req.ip ?? null
+    );
+    res.status(200).json({
+      ok: true,
+      mensaje: "Usuario actualizado",
+      data: usuario,
+    });
+  },
+
+  resetearPasswordUsuario: async (req: Request, res: Response) => {
+    const resultado = await plataformaService.resetearPasswordUsuario(
+      parseId(req.params.id),
+      parseId(req.params.usuarioId),
+      requireSuperadmin(req as PlataformaRequest),
+      req.ip ?? null
+    );
+    res.set("Cache-Control", "no-store");
+    res.status(200).json({
+      ok: true,
+      mensaje: "Contraseña restablecida",
+      data: resultado,
+    });
+  },
+
   getAuditoria: async (req: Request, res: Response) => {
     const { page, limit } = leerPaginacion(req.query);
     const comercioIdCrudo = queryString(req.query.comercioId);

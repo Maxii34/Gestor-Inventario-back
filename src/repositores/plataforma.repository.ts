@@ -62,6 +62,117 @@ export const plataformaRepository = {
       data: { revocado: true },
     }),
 
+  revocarRefreshTokensDeUsuario: (usuarioId: number, tx?: PrismaTx) =>
+    (tx ?? prisma).refreshToken.updateMany({
+      where: { usuarioId, revocado: false },
+      data: { revocado: true },
+    }),
+
+  findUsuariosDeComercio: (
+    comercioId: number,
+    skip: number,
+    take: number,
+    q?: string
+  ) =>
+    prisma.usuario.findMany({
+      where: {
+        comercioId,
+        ...(q
+          ? {
+              OR: [
+                { nombre: { contains: q, mode: "insensitive" } },
+                { email: { contains: q, mode: "insensitive" } },
+              ],
+            }
+          : {}),
+      },
+      skip,
+      take,
+      orderBy: { id: "asc" },
+      select: {
+        id: true,
+        nombre: true,
+        email: true,
+        rol: true,
+        activo: true,
+        debeCambiarPassword: true,
+        fechaCreacion: true,
+      },
+    }),
+
+  countUsuariosDeComercio: (comercioId: number, q?: string) =>
+    prisma.usuario.count({
+      where: {
+        comercioId,
+        ...(q
+          ? {
+              OR: [
+                { nombre: { contains: q, mode: "insensitive" } },
+                { email: { contains: q, mode: "insensitive" } },
+              ],
+            }
+          : {}),
+      },
+    }),
+
+  findUsuarioDeComercio: (
+    comercioId: number,
+    usuarioId: number,
+    tx?: PrismaTx
+  ) =>
+    (tx ?? prisma).usuario.findFirst({
+      where: { id: usuarioId, comercioId },
+      select: {
+        id: true,
+        nombre: true,
+        email: true,
+        rol: true,
+        activo: true,
+        debeCambiarPassword: true,
+        fechaCreacion: true,
+      },
+    }),
+
+  findUsuarioPorEmail: (
+    comercioId: number,
+    email: string,
+    tx?: PrismaTx
+  ) =>
+    (tx ?? prisma).usuario.findUnique({
+      where: { comercioId_email: { comercioId, email } },
+      select: { id: true },
+    }),
+
+  findUsuariosActivosPorRol: (
+    comercioId: number,
+    rol: "ADMIN" | "VENDEDOR",
+    tx?: PrismaTx
+  ) =>
+    (tx ?? prisma).usuario.findMany({
+      where: { comercioId, rol, activo: true },
+      select: { id: true },
+    }),
+
+  updateUsuario: (
+    usuarioId: number,
+    comercioId: number,
+    data: Prisma.UsuarioUncheckedUpdateInput,
+    tx?: PrismaTx
+  ) =>
+    (tx ?? prisma).usuario.update({
+      where: { id: usuarioId, comercioId },
+      data,
+      select: {
+        id: true,
+        nombre: true,
+        email: true,
+        rol: true,
+        activo: true,
+        debeCambiarPassword: true,
+        fechaCreacion: true,
+      },
+    }),
+
   crearPago: (data: Prisma.PagoUncheckedCreateInput, tx?: PrismaTx) =>
     (tx ?? prisma).pago.create({ data }),
 

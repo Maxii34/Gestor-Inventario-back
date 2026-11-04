@@ -68,6 +68,18 @@ export const cambiarPlanSchema = z
   })
   .strict();
 
+export const editarUsuarioPlataformaSchema = z
+  .object({
+    nombre: z.string().trim().min(1, "El nombre es obligatorio").max(120).optional(),
+    email: emailSchema.optional(),
+    rol: z.enum(["ADMIN", "VENDEDOR"]).optional(),
+    activo: z.boolean().optional(),
+  })
+  .strict()
+  .refine((d) => Object.keys(d).length > 0, {
+    message: "Enviá al menos un campo para actualizar",
+  });
+
 export const registrarPagoSchema = z
   .object({
     plan: z.enum(["MENSUAL", "TRIMESTRAL"], {
@@ -87,3 +99,4 @@ export type SuspenderComercioInput = z.infer<typeof suspenderComercioSchema>;
 export type ExtenderAccesoInput = z.infer<typeof extenderAccesoSchema>;
 export type CambiarPlanInput = z.infer<typeof cambiarPlanSchema>;
 export type RegistrarPagoInput = z.infer<typeof registrarPagoSchema>;
+export type EditarUsuarioPlataformaInput = z.infer<typeof editarUsuarioPlataformaSchema>;

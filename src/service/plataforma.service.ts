@@ -1,7 +1,14 @@
 import bcrypt from "bcrypt";
+import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import { prisma } from "../config/prisma";
-import { AccionPlataforma, MetodoCobro, Plan, Prisma } from "../generated/prisma/client";
+import {
+  AccionPlataforma,
+  MetodoCobro,
+  Plan,
+  Prisma,
+  RolUsuario,
+} from "../generated/prisma/client";
 import { superadminRepository } from "../repositores/superadmin.repository";
 import { plataformaRepository } from "../repositores/plataforma.repository";
 import { comercioService } from "./comercio.service";
@@ -587,6 +594,247 @@ const rangoMesActualArgentina = (ahora: Date) => {
   return { desde, hasta };
 };
 
+export interface EditarUsuarioPlataformaDTO {
+  nombre?: string;
+  email?: string;
+  rol?: RolUsuario;
+  activo?: boolean;
+}
+
+const snapshotUsuario = (usuario: {
+  id: number;
+  nombre: string;
+  email: string;
+  rol: RolUsuario;
+  activo: boolean;
+  debeCambiarPassword: boolean;
+}) => ({
+  id: usuario.id,
+  nombre: usuario.nombre,
+  email: usuario.email,
+  rol: usuario.rol,
+  activo: usuario.activo,
+  debeCambiarPassword: usuario.debeCambiarPassword,
+});
+
+const ALFABETO_PASSWORD_TEMPORAL =
+  "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+
+const generarPasswordTemporal = () => {
+  let password = "";
+  for (let i = 0; i < 12; i += 1) {
+    password += ALFABETO_PASSWORD_TEMPORAL[
+      crypto.randomInt(ALFABETO_PASSWORD_TEMPORAL.length)
+    ];
+  }
+  return password;
+};
+
+const listarUsuariosComercio = async (
+  comercioId: number,
+  page: number,
+  limit: number,
+  q?: string
+) => {
+  const comercio = await plataformaRepository.findComercioById(comercioId);
+  if (!comercio) {
+    throw new NotFoundError("Comercio no encontrado");
+  }
+
+  const termino = typeof q === "string" ? q.trim() : "";
+  const filtro = termino && termino.length <= 100 ? termino : undefined;
+  const skip = (page - 1) * limit;
+
+  const [usuarios, total] = await Promise.all([
+    plataformaRepository.findUsuariosDeComercio(comercioId, skip, limit, filtro),
+    plataformaRepository.countUsuariosDeComercio(comercioId, filtro),
+  ]);
+
+  return {
+    data: usuarios,
+    meta: { total, page, limit, totalPaginas: Math.ceil(total / limit) },
+  };
+};
+
+const editarUsuarioComercio = async (
+  comercioId: number,
+  usuarioId: number,
+  data: EditarUsuarioPlataformaDTO,
+  superadminId: number,
+  ip: string | null
+) => {
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const comercio = await plataformaRepository.findComercioById(
+        comercioId,
+        tx
+      );
+      if (!comercio) {
+        throw new NotFoundError("Comercio no encontrado");
+      }
+
+      const usuario = await plataformaRepository.findUsuarioDeComercio(
+        comercioId,
+        usuarioId,
+        tx
+      );
+      if (!usuario) {
+        throw new NotFoundError("Usuario no encontrado");
+      }
+
+      const nuevoRol = data.rol ?? usuario.rol;
+      const nuevoActivo = data.activo ?? usuario.activo;
+
+      const dejaDeSerAdminActivo =
+        usuario.rol === "ADMIN" &&
+        usuario.activo &&
+        (data.activo === false || data.rol === "VENDEDOR");
+
+      if (dejaDeSerAdminActivo) {
+        const admins = await plataformaRepository.findUsuariosActivosPorRol(
+          comercioId,
+          "ADMIN",
+          tx
+        );
+        if (!admins.some((admin) => admin.id !== usuarioId)) {
+          throw new ConflictError(
+            "No se puede desactivar ni quitar el rol al único administrador del comercio"
+          );
+        }
+      }
+
+      const pasaASerAdminActivo =
+        nuevoRol === "ADMIN" &&
+        nuevoActivo &&
+        !(usuario.rol === "ADMIN" && usuario.activo);
+
+      if (pasaASerAdminActivo) {
+        const admins = await plataformaRepository.findUsuariosActivosPorRol(
+          comercioId,
+          "ADMIN",
+          tx
+        );
+        if (admins.some((admin) => admin.id !== usuarioId)) {
+          throw new ConflictError(
+            "Ya existe un administrador activo en este comercio"
+          );
+        }
+      }
+
+      const cambios: Prisma.UsuarioUncheckedUpdateInput = {};
+      if (data.nombre !== undefined) cambios.nombre = data.nombre;
+      if (data.rol !== undefined) cambios.rol = data.rol;
+      if (data.activo !== undefined) cambios.activo = data.activo;
+
+      if (data.email !== undefined) {
+        const email = data.email.trim().toLowerCase();
+        const existente = await plataformaRepository.findUsuarioPorEmail(
+          comercioId,
+          email,
+          tx
+        );
+        if (existente && existente.id !== usuarioId) {
+          throw new ConflictError(
+            "Ya existe un usuario con ese email en este comercio"
+          );
+        }
+        cambios.email = email;
+      }
+
+      if (data.activo === false) {
+        await plataformaRepository.revocarRefreshTokensDeUsuario(
+          usuarioId,
+          tx
+        );
+      }
+
+      const actualizado = await plataformaRepository.updateUsuario(
+        usuarioId,
+        comercioId,
+        cambios,
+        tx
+      );
+
+      await plataformaRepository.crearAuditoria(
+        {
+          accion: AccionPlataforma.EDITAR_USUARIO,
+          detalle: {
+            antes: snapshotUsuario(usuario),
+            despues: snapshotUsuario(actualizado),
+          },
+          ip,
+          superadminId,
+          comercioId,
+        },
+        tx
+      );
+
+      return actualizado;
+    });
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
+      throw new ConflictError(
+        "Ya existe un administrador activo en este comercio"
+      );
+    }
+    throw error;
+  }
+};
+
+const resetearPasswordUsuario = async (
+  comercioId: number,
+  usuarioId: number,
+  superadminId: number,
+  ip: string | null
+) => {
+  const passwordTemporal = generarPasswordTemporal();
+  const passwordHasheada = await bcrypt.hash(passwordTemporal, 10);
+
+  await prisma.$transaction(async (tx) => {
+    const comercio = await plataformaRepository.findComercioById(
+      comercioId,
+      tx
+    );
+    if (!comercio) {
+      throw new NotFoundError("Comercio no encontrado");
+    }
+
+    const usuario = await plataformaRepository.findUsuarioDeComercio(
+      comercioId,
+      usuarioId,
+      tx
+    );
+    if (!usuario) {
+      throw new NotFoundError("Usuario no encontrado");
+    }
+
+    await plataformaRepository.updateUsuario(
+      usuarioId,
+      comercioId,
+      { password: passwordHasheada, debeCambiarPassword: true },
+      tx
+    );
+
+    await plataformaRepository.revocarRefreshTokensDeUsuario(usuarioId, tx);
+
+    await plataformaRepository.crearAuditoria(
+      {
+        accion: AccionPlataforma.RESETEAR_PASSWORD,
+        detalle: { usuarioId },
+        ip,
+        superadminId,
+        comercioId,
+      },
+      tx
+    );
+  });
+
+  return { passwordTemporal };
+};
+
 const obtenerMetricas = async () => {
   const ahora = new Date();
   const comercios = await plataformaRepository.findComerciosParaMetricas();
@@ -652,5 +900,8 @@ export const plataformaService = {
   registrarPago,
   listarPagos,
   listarAuditoria,
+  listarUsuariosComercio,
+  editarUsuarioComercio,
+  resetearPasswordUsuario,
   obtenerMetricas,
 };
