@@ -11,6 +11,14 @@ import {
 } from "../generated/prisma/client";
 import { superadminRepository } from "../repositores/superadmin.repository";
 import { plataformaRepository } from "../repositores/plataforma.repository";
+import { categoriaRepository } from "../repositores/categoria.repository";
+import { productoRepository } from "../repositores/producto.repository";
+import {
+  categoriaMasivaFilaSchema,
+  CategoriaMasivaFilaInput,
+  productoMasivaFilaSchema,
+  ProductoMasivaFilaInput,
+} from "../validators/plataforma.validation";
 import { comercioService } from "./comercio.service";
 import {
   calcularNuevoAcceso,
@@ -835,6 +843,273 @@ const resetearPasswordUsuario = async (
   return { passwordTemporal };
 };
 
+export interface ErrorFilaCarga {
+  fila: number;
+  campo?: string;
+  mensaje: string;
+}
+
+export type ResultadoCargaMasiva =
+  | { ok: false; errores: ErrorFilaCarga[] }
+  | { ok: true; validas: number; simulacion: true }
+  | { ok: true; creados: number };
+
+const erroresDeParseo = (
+  issues: { path: (string | number)[]; message: string }[],
+  fila: number
+): ErrorFilaCarga[] =>
+  issues.map((issue) => ({
+    fila,
+    campo: issue.path.length > 0 ? issue.path.join(".") : undefined,
+    mensaje: issue.message,
+  }));
+
+const cargaMasivaCategorias = async (
+  comercioId: number,
+  data: { categorias: unknown[]; simular?: boolean },
+  superadminId: number,
+  ip: string | null
+): Promise<ResultadoCargaMasiva> => {
+  if (data.categorias.length < 1 || data.categorias.length > 50) {
+    throw new BadRequestError(
+      "La carga masiva debe tener entre 1 y 50 categorías"
+    );
+  }
+
+  const comercio = await plataformaRepository.findComercioById(comercioId);
+  if (!comercio) {
+    throw new NotFoundError("Comercio no encontrado");
+  }
+
+  const errores: ErrorFilaCarga[] = [];
+  const validas: CategoriaMasivaFilaInput[] = [];
+  const vistos = new Map<string, number>();
+  const existentes = new Set(
+    (await categoriaRepository.findAllParaCargaMasiva(comercioId)).map(
+      (categoria) => categoria.nombre.toLowerCase()
+    )
+  );
+
+  data.categorias.forEach((fila, indice) => {
+    const numero = indice + 1;
+    const parseo = categoriaMasivaFilaSchema.safeParse(fila);
+    if (!parseo.success) {
+      errores.push(...erroresDeParseo(parseo.error.issues, numero));
+      return;
+    }
+
+    const clave = parseo.data.nombre.toLowerCase();
+    if (vistos.has(clave)) {
+      errores.push({
+        fila: numero,
+        campo: "nombre",
+        mensaje: `Nombre de categoría duplicado en el pedido (también en la fila ${vistos.get(clave)})`,
+      });
+      return;
+    }
+    vistos.set(clave, numero);
+
+    if (existentes.has(clave)) {
+      errores.push({
+        fila: numero,
+        campo: "nombre",
+        mensaje: "Ya existe una categoría con ese nombre en el comercio",
+      });
+      return;
+    }
+
+    validas.push(parseo.data);
+  });
+
+  if (errores.length > 0) {
+    return { ok: false, errores };
+  }
+
+  if (data.simular) {
+    return { ok: true, validas: validas.length, simulacion: true };
+  }
+
+  const creados = await prisma.$transaction(async (tx) => {
+    for (const fila of validas) {
+      await categoriaRepository.create(
+        {
+          nombre: fila.nombre,
+          descripcion: fila.descripcion,
+          comercio: { connect: { id: comercioId } },
+        },
+        tx
+      );
+    }
+
+    await plataformaRepository.crearAuditoria(
+      {
+        accion: AccionPlataforma.CARGA_MASIVA_CATEGORIAS,
+        detalle: { cantidad: validas.length, simulacion: false },
+        ip,
+        superadminId,
+        comercioId,
+      },
+      tx
+    );
+
+    return validas.length;
+  });
+
+  return { ok: true, creados };
+};
+
+const cargaMasivaProductos = async (
+  comercioId: number,
+  data: { productos: unknown[]; simular?: boolean },
+  superadminId: number,
+  ip: string | null
+): Promise<ResultadoCargaMasiva> => {
+  if (data.productos.length < 1 || data.productos.length > 50) {
+    throw new BadRequestError(
+      "La carga masiva debe tener entre 1 y 50 productos"
+    );
+  }
+
+  const comercio = await plataformaRepository.findComercioById(comercioId);
+  if (!comercio) {
+    throw new NotFoundError("Comercio no encontrado");
+  }
+
+  const [productosExistentes, categoriasExistentes] = await Promise.all([
+    productoRepository.findAllParaCargaMasiva(comercioId),
+    categoriaRepository.findAllParaCargaMasiva(comercioId),
+  ]);
+
+  const nombresExistentes = new Set(
+    productosExistentes.map((producto) => producto.nombre.toLowerCase())
+  );
+  const codigosExistentes = new Set(
+    productosExistentes
+      .map((producto) => producto.codigoBarras)
+      .filter((codigo): codigo is string => codigo !== null)
+  );
+  const categoriasPorNombre = new Map(
+    categoriasExistentes.map((categoria) => [
+      categoria.nombre.toLowerCase(),
+      categoria.id,
+    ])
+  );
+
+  const errores: ErrorFilaCarga[] = [];
+  const validas: { fila: ProductoMasivaFilaInput; categoriaId: number }[] = [];
+  const nombresVistos = new Map<string, number>();
+  const codigosVistos = new Map<string, number>();
+
+  data.productos.forEach((fila, indice) => {
+    const numero = indice + 1;
+    const parseo = productoMasivaFilaSchema.safeParse(fila);
+    if (!parseo.success) {
+      errores.push(...erroresDeParseo(parseo.error.issues, numero));
+      return;
+    }
+
+    const producto = parseo.data;
+    let valida = true;
+
+    const nombreClave = producto.nombre.toLowerCase();
+    if (nombresVistos.has(nombreClave)) {
+      errores.push({
+        fila: numero,
+        campo: "nombre",
+        mensaje: `Nombre de producto duplicado en el pedido (también en la fila ${nombresVistos.get(nombreClave)})`,
+      });
+      valida = false;
+    } else {
+      nombresVistos.set(nombreClave, numero);
+    }
+
+    if (nombresExistentes.has(nombreClave)) {
+      errores.push({
+        fila: numero,
+        campo: "nombre",
+        mensaje: "Ya existe un producto con ese nombre en el comercio",
+      });
+      valida = false;
+    }
+
+    const categoriaId = categoriasPorNombre.get(
+      producto.categoria.toLowerCase()
+    );
+    if (categoriaId === undefined) {
+      errores.push({
+        fila: numero,
+        campo: "categoria",
+        mensaje: "La categoría no existe en el comercio",
+      });
+      valida = false;
+    }
+
+    if (producto.codigoBarras !== undefined) {
+      if (codigosVistos.has(producto.codigoBarras)) {
+        errores.push({
+          fila: numero,
+          campo: "codigoBarras",
+          mensaje: `Código de barras duplicado en el pedido (también en la fila ${codigosVistos.get(producto.codigoBarras)})`,
+        });
+        valida = false;
+      } else {
+        codigosVistos.set(producto.codigoBarras, numero);
+      }
+
+      if (codigosExistentes.has(producto.codigoBarras)) {
+        errores.push({
+          fila: numero,
+          campo: "codigoBarras",
+          mensaje: "Ya existe un producto con ese código de barras en el comercio",
+        });
+        valida = false;
+      }
+    }
+
+    if (valida && categoriaId !== undefined) {
+      validas.push({ fila: producto, categoriaId });
+    }
+  });
+
+  if (errores.length > 0) {
+    return { ok: false, errores };
+  }
+
+  if (data.simular) {
+    return { ok: true, validas: validas.length, simulacion: true };
+  }
+
+  const creados = await prisma.$transaction(async (tx) => {
+    for (const { fila, categoriaId } of validas) {
+      const { categoria, ...resto } = fila;
+      await productoRepository.create(
+        {
+          ...resto,
+          activo: true,
+          comercio: { connect: { id: comercioId } },
+          categoria: { connect: { id: categoriaId } },
+        },
+        tx
+      );
+    }
+
+    await plataformaRepository.crearAuditoria(
+      {
+        accion: AccionPlataforma.CARGA_MASIVA_PRODUCTOS,
+        detalle: { cantidad: validas.length, simulacion: false },
+        ip,
+        superadminId,
+        comercioId,
+      },
+      tx
+    );
+
+    return validas.length;
+  });
+
+  return { ok: true, creados };
+};
+
 const obtenerMetricas = async () => {
   const ahora = new Date();
   const comercios = await plataformaRepository.findComerciosParaMetricas();
@@ -903,5 +1178,7 @@ export const plataformaService = {
   listarUsuariosComercio,
   editarUsuarioComercio,
   resetearPasswordUsuario,
+  cargaMasivaCategorias,
+  cargaMasivaProductos,
   obtenerMetricas,
 };

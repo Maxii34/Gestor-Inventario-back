@@ -202,6 +202,72 @@ export const plataformaController = {
     });
   },
 
+  cargaMasivaCategorias: async (req: Request, res: Response) => {
+    const resultado = await plataformaService.cargaMasivaCategorias(
+      parseId(req.params.id),
+      req.body,
+      requireSuperadmin(req as PlataformaRequest),
+      req.ip ?? null
+    );
+
+    if (!resultado.ok) {
+      res.status(400).json({
+        ok: false,
+        mensaje: "Hay filas con errores: no se cargó nada",
+        data: { errores: resultado.errores },
+      });
+      return;
+    }
+
+    if ("simulacion" in resultado) {
+      res.status(200).json({
+        ok: true,
+        mensaje: "Simulación completada",
+        data: { validas: resultado.validas, simulacion: true },
+      });
+      return;
+    }
+
+    res.status(201).json({
+      ok: true,
+      mensaje: "Categorías cargadas",
+      data: { creados: resultado.creados },
+    });
+  },
+
+  cargaMasivaProductos: async (req: Request, res: Response) => {
+    const resultado = await plataformaService.cargaMasivaProductos(
+      parseId(req.params.id),
+      req.body,
+      requireSuperadmin(req as PlataformaRequest),
+      req.ip ?? null
+    );
+
+    if (!resultado.ok) {
+      res.status(400).json({
+        ok: false,
+        mensaje: "Hay filas con errores: no se cargó nada",
+        data: { errores: resultado.errores },
+      });
+      return;
+    }
+
+    if ("simulacion" in resultado) {
+      res.status(200).json({
+        ok: true,
+        mensaje: "Simulación completada",
+        data: { validas: resultado.validas, simulacion: true },
+      });
+      return;
+    }
+
+    res.status(201).json({
+      ok: true,
+      mensaje: "Productos cargados",
+      data: { creados: resultado.creados },
+    });
+  },
+
   getAuditoria: async (req: Request, res: Response) => {
     const { page, limit } = leerPaginacion(req.query);
     const comercioIdCrudo = queryString(req.query.comercioId);

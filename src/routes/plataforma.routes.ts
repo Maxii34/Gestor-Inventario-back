@@ -5,6 +5,8 @@ import { plataformaLoginLimiter } from "../middlewares/rateLimit";
 import { verificarSuperadmin } from "../middlewares/plataforma.middleware";
 import {
   cambiarPlanSchema,
+  cargaMasivaCategoriasSchema,
+  cargaMasivaProductosSchema,
   crearComercioPlataformaSchema,
   editarUsuarioPlataformaSchema,
   extenderAccesoSchema,
@@ -49,6 +51,18 @@ router.post(
   "/comercios/:id/usuarios/:usuarioId/resetear-password",
   verificarSuperadmin,
   plataformaController.resetearPasswordUsuario
+);
+router.post(
+  "/comercios/:id/categorias/masivo",
+  verificarSuperadmin,
+  validate(cargaMasivaCategoriasSchema),
+  plataformaController.cargaMasivaCategorias
+);
+router.post(
+  "/comercios/:id/productos/masivo",
+  verificarSuperadmin,
+  validate(cargaMasivaProductosSchema),
+  plataformaController.cargaMasivaProductos
 );
 router.post(
   "/comercios/:id/suspender",

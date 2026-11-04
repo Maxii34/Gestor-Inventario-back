@@ -27,6 +27,12 @@ export const productoRepository = {
       include: { categoria: true },
     }),
 
+  findAllParaCargaMasiva: (comercioId: number, tx?: PrismaTx) =>
+    (tx ?? prisma).producto.findMany({
+      where: { comercioId },
+      select: { id: true, nombre: true, codigoBarras: true },
+    }),
+
   create: (data: Prisma.ProductoCreateInput, tx?: PrismaTx) =>
     (tx ?? prisma).producto.create({ data }),
 

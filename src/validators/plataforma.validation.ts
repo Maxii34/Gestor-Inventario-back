@@ -1,4 +1,6 @@
 ﻿import { z } from "zod";
+import { categoriaSchema } from "./categoria.validation";
+import { productoSchema } from "./producto.validation";
 
 const emailSchema = z
   .string()
@@ -68,6 +70,54 @@ export const cambiarPlanSchema = z
   })
   .strict();
 
+export const categoriaMasivaFilaSchema = categoriaSchema
+  .pick({ nombre: true, descripcion: true })
+  .strict();
+
+export const productoMasivaFilaSchema = productoSchema
+  .omit({ categoriaId: true })
+  .extend({
+    categoria: z
+      .string({ error: "La categoría es obligatoria" })
+      .trim()
+      .min(1, "La categoría es obligatoria")
+      .max(100, "La categoría no puede superar los 100 caracteres"),
+  })
+  .strict()
+  .superRefine((data, ctx) => {
+    if (data.precioVenta <= data.precioCompra) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["precioVenta"],
+        message: "El precio de venta debe ser mayor al de compra",
+      });
+    }
+  });
+
+const cargaMasivaBase = {
+  simular: z.boolean().optional(),
+};
+
+export const cargaMasivaCategoriasSchema = z
+  .object({
+    categorias: z
+      .array(z.unknown())
+      .min(1, "Debés enviar al menos una categoría")
+      .max(50, "No se pueden cargar más de 50 categorías por pedido"),
+    ...cargaMasivaBase,
+  })
+  .strict();
+
+export const cargaMasivaProductosSchema = z
+  .object({
+    productos: z
+      .array(z.unknown())
+      .min(1, "Debés enviar al menos un producto")
+      .max(50, "No se pueden cargar más de 50 productos por pedido"),
+    ...cargaMasivaBase,
+  })
+  .strict();
+
 export const editarUsuarioPlataformaSchema = z
   .object({
     nombre: z.string().trim().min(1, "El nombre es obligatorio").max(120).optional(),
@@ -100,3 +150,7 @@ export type ExtenderAccesoInput = z.infer<typeof extenderAccesoSchema>;
 export type CambiarPlanInput = z.infer<typeof cambiarPlanSchema>;
 export type RegistrarPagoInput = z.infer<typeof registrarPagoSchema>;
 export type EditarUsuarioPlataformaInput = z.infer<typeof editarUsuarioPlataformaSchema>;
+export type CargaMasivaCategoriasInput = z.infer<typeof cargaMasivaCategoriasSchema>;
+export type CargaMasivaProductosInput = z.infer<typeof cargaMasivaProductosSchema>;
+export type CategoriaMasivaFilaInput = z.infer<typeof categoriaMasivaFilaSchema>;
+export type ProductoMasivaFilaInput = z.infer<typeof productoMasivaFilaSchema>;
