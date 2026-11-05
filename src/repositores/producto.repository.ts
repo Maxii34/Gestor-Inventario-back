@@ -4,25 +4,54 @@ import { Prisma } from "../generated/prisma/client";
 type PrismaTx = Prisma.TransactionClient;
 
 export const productoRepository = {
-  findAll: (skip?: number, take?: number) =>
+  findAll: (comercioId: number, skip?: number, take?: number) =>
     prisma.producto.findMany({
+      where: { comercioId },
       skip,
       take,
-      orderBy: { id: "asc" },
+      orderBy: { id: "desc" },
       include: { categoria: true },
     }),
 
-  count: () => prisma.producto.count(),
+  count: (comercioId: number) => prisma.producto.count({ where: { comercioId } }),
 
-  findById: (id: number, tx?: PrismaTx) =>
-    (tx ?? prisma).producto.findUnique({ where: { id }, include: { categoria: true } }),
+  findById: (id: number, comercioId: number, tx?: PrismaTx) =>
+    (tx ?? prisma).producto.findFirst({
+      where: { id, comercioId },
+      include: { categoria: true },
+    }),
 
-  create: (data: Prisma.ProductoUncheckedCreateInput, tx?: PrismaTx) =>
+  findByCodigoBarras: (comercioId: number, codigoBarras: string, tx?: PrismaTx) =>
+    (tx ?? prisma).producto.findFirst({
+      where: { comercioId, codigoBarras },
+      include: { categoria: true },
+    }),
+
+  findAllParaCargaMasiva: (comercioId: number, tx?: PrismaTx) =>
+    (tx ?? prisma).producto.findMany({
+      where: { comercioId },
+      select: { id: true, nombre: true, codigoBarras: true },
+    }),
+
+  create: (data: Prisma.ProductoCreateInput, tx?: PrismaTx) =>
     (tx ?? prisma).producto.create({ data }),
 
-  update: (id: number, data: Prisma.ProductoUncheckedUpdateInput, tx?: PrismaTx) =>
-    (tx ?? prisma).producto.update({ where: { id }, data }),
+  update: (
+    id: number,
+    comercioId: number,
+    data: Prisma.ProductoUncheckedUpdateInput,
+    tx?: PrismaTx
+  ) => (tx ?? prisma).producto.update({ where: { id, comercioId }, data }),
 
-  delete: (id: number, tx?: PrismaTx) =>
-    (tx ?? prisma).producto.delete({ where: { id } }),
+  // Actualización condicional (ej: `where: { id, comercioId, stock: { gte: n } }`
+  // con `data: { stock: { decrement: n } }`): el descuento ocurre o no de forma
+  // atómica, sin leer-escribir por separado. Devuelve `{ count }`.
+  updateMany: (
+    where: Prisma.ProductoWhereInput,
+    data: Prisma.ProductoUncheckedUpdateInput,
+    tx?: PrismaTx
+  ) => (tx ?? prisma).producto.updateMany({ where, data }),
+
+  delete: (id: number, comercioId: number, tx?: PrismaTx) =>
+    (tx ?? prisma).producto.delete({ where: { id, comercioId } }),
 };

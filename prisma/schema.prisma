@@ -13,116 +13,313 @@ datasource db {
   provider = "postgresql"
 }
 
-model Categoria {
-  id          Int        @id @default(autoincrement())
-  nombre      String     @unique
-  descripcion String?
-  activo      Boolean    @default(true)
+model Comercio {
+  id               Int       @id @default(autoincrement())
+  nombre           String
+  slug             String    @unique
+  activo           Boolean   @default(true)
+  plan             Plan      @default(PRUEBA)
+  accesoHasta      DateTime?
+  motivoSuspension String?
+  ultimoLogin      DateTime?
+
+  categorias  Categoria[]
   productos   Producto[]
-  fechaCreacion DateTime @default(now())
+  movimientos MovimientoStock[]
+  clientes    Cliente[]
+  proveedores Proveedor[]
+  ventas      Venta[]
+  detalles    DetalleVenta[]
+  usuarios    Usuario[]
+  pagos       Pago[]
+  auditorias  AuditoriaPlataforma[]
+
+  fechaCreacion      DateTime @default(now())
   fechaActualizacion DateTime @updatedAt
+
+  @@index([accesoHasta])
+}
+
+model Categoria {
+  id          Int     @id @default(autoincrement())
+  nombre      String
+  descripcion String?
+  activo      Boolean @default(true)
+
+  comercioId Int
+  comercio   Comercio @relation(fields: [comercioId], references: [id], onDelete: Restrict)
+
+  productos Producto[]
+
+  fechaCreacion      DateTime @default(now())
+  fechaActualizacion DateTime @updatedAt
+
+  @@unique([id, comercioId])
+  @@unique([comercioId, nombre])
+  @@index([comercioId])
 }
 
 model Producto {
-  id          Int        @id @default(autoincrement())
-  nombre      String
-  descripcion String?
-  precioCompra Decimal    @db.Decimal(10, 2)
-  precioVenta  Decimal    @db.Decimal(10, 2)
-  stock       Int        @default(0)
-  stockMinimo Int        @default(0)
-  activo      Boolean    @default(true)
+  id                  Int      @id @default(autoincrement())
+  nombre              String
+  descripcion         String?
+  codigoBarras        String?
+  precioCompra        Decimal  @db.Decimal(12, 4)
+  precioCompraPaquete Decimal? @db.Decimal(12, 2)
+  unidadesPorPaquete  Int      @default(1)
+  precioVenta         Decimal  @db.Decimal(10, 2)
+  stock               Int      @default(0)
+  stockMinimo         Int      @default(0)
+  activo              Boolean  @default(true)
+
+  comercioId Int
+  comercio   Comercio @relation(fields: [comercioId], references: [id], onDelete: Restrict)
 
   categoriaId Int
-  categoria   Categoria  @relation(fields: [categoriaId], references: [id])
+  categoria   Categoria @relation(fields: [categoriaId, comercioId], references: [id, comercioId], onDelete: Restrict)
 
   movimientosStock MovimientoStock[]
   detallesVenta    DetalleVenta[]
 
-  fechaCreacion    DateTime @default(now())
+  fechaCreacion      DateTime @default(now())
   fechaActualizacion DateTime @updatedAt
+
+  @@unique([id, comercioId])
+  @@unique([comercioId, codigoBarras])
+  @@index([comercioId, categoriaId])
+  @@index([comercioId, nombre])
+}
+
+model Proveedor {
+  id       Int     @id @default(autoincrement())
+  nombre   String
+  telefono String?
+  email    String?
+  activo   Boolean @default(true)
+
+  comercioId Int
+  comercio   Comercio @relation(fields: [comercioId], references: [id], onDelete: Restrict)
+
+  fechaCreacion      DateTime @default(now())
+  fechaActualizacion DateTime @updatedAt
+
+  @@unique([id, comercioId])
+  @@unique([comercioId, nombre])
+  @@index([comercioId])
 }
 
 model MovimientoStock {
-  id          Int      @id @default(autoincrement())
-  tipo        TipoMovimiento
-  cantidad    Int
+  id            Int            @id @default(autoincrement())
+  tipo          TipoMovimiento
+  cantidad      Int
   stockAnterior Int
   stockNuevo    Int
-  motivo      String?
+  motivo        String?
 
-  productoId  Int
-  producto    Producto @relation(fields: [productoId], references: [id])
+  comercioId Int
+  comercio   Comercio @relation(fields: [comercioId], references: [id], onDelete: Restrict)
 
-  fecha       DateTime @default(now())
+  productoId Int
+  producto   Producto @relation(fields: [productoId, comercioId], references: [id, comercioId], onDelete: Restrict)
+
+  responsableId Int?
+  responsable   Usuario? @relation("MovimientoResponsable", fields: [responsableId, comercioId], references: [id, comercioId], onDelete: Restrict)
+
+  fecha DateTime @default(now())
+
+  @@index([comercioId, productoId, fecha])
 }
 
 model Cliente {
-  id          Int      @id @default(autoincrement())
-  nombre      String
-  apellido    String
-  dni         String?  @unique
-  telefono    String?
-  email       String?  @unique
-  activo      Boolean  @default(true)
+  id       Int     @id @default(autoincrement())
+  nombre   String
+  apellido String
+  dni      String?
+  telefono String?
+  email    String?
+  activo   Boolean @default(true)
 
-  ventas      Venta[]
+  comercioId Int
+  comercio   Comercio @relation(fields: [comercioId], references: [id], onDelete: Restrict)
 
-  fechaCreacion DateTime @default(now())
+  ventas Venta[]
+
+  fechaCreacion      DateTime @default(now())
   fechaActualizacion DateTime @updatedAt
+
+  @@unique([id, comercioId])
+  @@unique([comercioId, dni])
+  @@unique([comercioId, email])
+  @@index([comercioId])
 }
 
 model Venta {
-  id              Int          @id @default(autoincrement())
-  total           Decimal      @db.Decimal(10, 2)
-  metodoPago      MetodoPago
-  estado          EstadoVenta  @default(PENDIENTE) 
+  id         Int         @id @default(autoincrement())
+  total      Decimal     @db.Decimal(10, 2)
+  metodoPago MetodoPago
+  estado     EstadoVenta @default(PENDIENTE)
 
-  mercadoPagoPreferenceId String?
-  mercadoPagoPaymentId    String?
+  motivoAnulacion String?
+  fechaAnulacion  DateTime?
 
-  clienteId       Int?
-  cliente         Cliente?     @relation(fields: [clienteId], references: [id])
+  comercioId Int
+  comercio   Comercio @relation(fields: [comercioId], references: [id], onDelete: Restrict)
 
-  detalles        DetalleVenta[]
+  vendedorId Int?
+  vendedor   Usuario? @relation("VentaVendedor", fields: [vendedorId, comercioId], references: [id, comercioId], onDelete: Restrict)
 
-  fecha           DateTime     @default(now())
+  anuladoPorId Int?
+  anuladoPor   Usuario? @relation("VentaAnuladaPor", fields: [anuladoPorId, comercioId], references: [id, comercioId], onDelete: Restrict)
+
+  clienteId Int?
+  cliente   Cliente? @relation(fields: [clienteId, comercioId], references: [id, comercioId], onDelete: Restrict)
+
+  detalles DetalleVenta[]
+
+  fecha              DateTime @default(now())
+  fechaActualizacion DateTime @updatedAt
+
+  @@unique([id, comercioId])
+  @@index([comercioId, estado, fecha])
+  @@index([comercioId, clienteId])
 }
 
 model DetalleVenta {
-  id          Int      @id @default(autoincrement())
-  cantidad    Int
+  id             Int     @id @default(autoincrement())
+  cantidad       Int
   precioUnitario Decimal @db.Decimal(10, 2)
-  subtotal    Decimal  @db.Decimal(10, 2)
+  subtotal       Decimal @db.Decimal(10, 2)
 
-  ventaId     Int
-  venta       Venta    @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+  // Desnormalizado a propósito: es la única forma de que la base de datos
+  // garantice que el producto del detalle pertenece al comercio de la venta.
+  // No puede divergir porque ambas FK compuestas fijan el mismo comercioId.
+  comercioId Int
+  comercio   Comercio @relation(fields: [comercioId], references: [id], onDelete: Restrict)
 
-  productoId  Int
-  producto    Producto @relation(fields: [productoId], references: [id])
+  ventaId Int
+  venta   Venta @relation(fields: [ventaId, comercioId], references: [id, comercioId], onDelete: Cascade)
+
+  productoId Int
+  producto   Producto @relation(fields: [productoId, comercioId], references: [id, comercioId], onDelete: Restrict)
+
+  @@index([ventaId, productoId])
 }
 
 model Usuario {
-  id        Int      @id @default(autoincrement())
-  nombre    String
-  email     String   @unique
-  password  String
-  rol       RolUsuario @default(VENDEDOR)
-  activo    Boolean  @default(true)
+  id                  Int        @id @default(autoincrement())
+  nombre              String
+  email               String
+  password            String
+  rol                 RolUsuario @default(VENDEDOR)
+  activo              Boolean    @default(true)
+  debeCambiarPassword Boolean    @default(false)
 
-  fechaCreacion DateTime @default(now())
+  comercioId Int
+  comercio   Comercio @relation(fields: [comercioId], references: [id], onDelete: Restrict)
+
+  fechaCreacion      DateTime @default(now())
   fechaActualizacion DateTime @updatedAt
-  refreshTokens RefreshToken[]
+
+  refreshTokens        RefreshToken[]
+  ventasRealizadas     Venta[]           @relation("VentaVendedor")
+  movimientosGenerados MovimientoStock[] @relation("MovimientoResponsable")
+  ventasAnuladas       Venta[]           @relation("VentaAnuladaPor")
+
+  @@unique([id, comercioId])
+  @@unique([comercioId, email])
+  @@index([comercioId, rol])
 }
 
 model RefreshToken {
-  id          Int      @id @default(autoincrement())
-  token       String   @unique
-  usuarioId   Int
-  usuario     Usuario  @relation(fields: [usuarioId], references: [id])
-  expiraEn    DateTime
-  revocado    Boolean  @default(false)
+  id            Int      @id @default(autoincrement())
+  token         String   @unique
+  usuarioId     Int
+  usuario       Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  expiraEn      DateTime
+  revocado      Boolean  @default(false)
   fechaCreacion DateTime @default(now())
+
+  @@index([usuarioId])
+}
+
+model Superadmin {
+  id       Int     @id @default(autoincrement())
+  nombre   String
+  email    String  @unique
+  password String
+  activo   Boolean @default(true)
+
+  auditorias AuditoriaPlataforma[]
+  pagos      Pago[]
+
+  fechaCreacion      DateTime @default(now())
+  fechaActualizacion DateTime @updatedAt
+}
+
+model Pago {
+  id               Int         @id @default(autoincrement())
+  monto            Decimal     @db.Decimal(12, 2)
+  moneda           String      @default("ARS")
+  metodo           MetodoCobro
+  referencia       String?
+  nota             String?
+  plan             Plan
+  mesesAcreditados Int
+  accesoDesde      DateTime
+  accesoHasta      DateTime
+
+  comercioId Int
+  comercio   Comercio @relation(fields: [comercioId], references: [id], onDelete: Restrict)
+
+  registradoPorId Int
+  registradoPor   Superadmin @relation(fields: [registradoPorId], references: [id], onDelete: Restrict)
+
+  fecha DateTime @default(now())
+
+  @@index([comercioId, fecha])
+}
+
+model AuditoriaPlataforma {
+  id      Int              @id @default(autoincrement())
+  accion  AccionPlataforma
+  detalle Json?
+  ip      String?
+
+  superadminId Int
+  superadmin   Superadmin @relation(fields: [superadminId], references: [id], onDelete: Restrict)
+
+  comercioId Int?
+  comercio   Comercio? @relation(fields: [comercioId], references: [id], onDelete: Restrict)
+
+  fecha DateTime @default(now())
+
+  @@index([comercioId, fecha])
+  @@index([superadminId, fecha])
+}
+
+enum Plan {
+  PRUEBA
+  MENSUAL
+  TRIMESTRAL
+}
+
+enum MetodoCobro {
+  TRANSFERENCIA
+  EFECTIVO
+  OTRO
+}
+
+enum AccionPlataforma {
+  CREAR_COMERCIO
+  SUSPENDER
+  REACTIVAR
+  EXTENDER_ACCESO
+  CAMBIAR_PLAN
+  REGISTRAR_PAGO
+  EDITAR_USUARIO
+  RESETEAR_PASSWORD
+  CARGA_MASIVA_CATEGORIAS
+  CARGA_MASIVA_PRODUCTOS
 }
 
 enum TipoMovimiento {
@@ -135,7 +332,6 @@ enum MetodoPago {
   EFECTIVO
   TRANSFERENCIA
   TARJETA
-  PEDIDO_DISTANCIA
 }
 
 enum EstadoVenta {
