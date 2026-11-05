@@ -1,19 +1,48 @@
 import { prisma } from "../config/prisma";
+import { Prisma } from "../generated/prisma/client";
+
+type PrismaTx = Prisma.TransactionClient;
+
+const construirWhere = (
+  comercioId: number,
+  q?: string
+): Prisma.CategoriaWhereInput => ({
+  comercioId,
+  ...(q
+    ? { nombre: { contains: q, mode: "insensitive" } }
+    : {}),
+});
 
 export const categoriaRepository = {
-  findAll: () => prisma.categoria.findMany(),
+  findAll: (comercioId: number, skip: number, take: number, q?: string) =>
+    prisma.categoria.findMany({
+      where: construirWhere(comercioId, q),
+      skip,
+      take,
+      orderBy: { id: "desc" },
+    }),
 
-  findById: (id: number) =>
-    prisma.categoria.findUnique({
-      where: { id },
+  count: (comercioId: number, q?: string) =>
+    prisma.categoria.count({ where: construirWhere(comercioId, q) }),
+
+  findById: (id: number, comercioId: number) =>
+    prisma.categoria.findFirst({
+      where: { id, comercioId },
       include: { productos: true },
     }),
 
-  create: (data: { nombre: string; descripcion?: string }) =>
-    prisma.categoria.create({ data }),
+  findAllParaCargaMasiva: (comercioId: number, tx?: PrismaTx) =>
+    (tx ?? prisma).categoria.findMany({
+      where: { comercioId },
+      select: { id: true, nombre: true },
+    }),
 
-  update: (id: number, data: { nombre?: string; descripcion?: string }) =>
-    prisma.categoria.update({ where: { id }, data }),
+  create: (data: Prisma.CategoriaCreateInput, tx?: PrismaTx) =>
+    (tx ?? prisma).categoria.create({ data }),
 
-  delete: (id: number) => prisma.categoria.delete({ where: { id } }),
+  update: (id: number, comercioId: number, data: Prisma.CategoriaUpdateInput) =>
+    prisma.categoria.update({ where: { id, comercioId }, data }),
+
+  delete: (id: number, comercioId: number) =>
+    prisma.categoria.delete({ where: { id, comercioId } }),
 };

@@ -1,0 +1,62 @@
+import rateLimit from "express-rate-limit";
+
+// Los límites se cuentan por IP. El contador vive en memoria del proceso:
+// se reinicia al reiniciar el servidor (y en serverless no se comparte entre
+// instancias). Alcanza para frenar abuso básico; para algo más estricto haría
+// falta un almacén compartido (por ejemplo Redis).
+
+const mensaje = (texto: string) => ({ ok: false, mensaje: texto });
+
+// Login: solo cuenta los intentos FALLIDOS. Frena la fuerza bruta de
+// contraseñas sin molestar a quien entra bien.
+export const loginLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // Ahora 5 minutos
+  limit: 5, // 5 intentos
+  skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: mensaje("Demasiados intentos de inicio de sesión. Probá de nuevo en 5 minutos."),
+});
+
+// Cambio de contraseña: mismo criterio que el login (solo cuentan los intentos
+// fallidos), con contador propio para no mezclarse con el de login.
+export const cambiarPasswordLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  limit: 5,
+  skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: mensaje("Demasiados intentos de cambio de contraseña. Probá de nuevo en 5 minutos."),
+});
+
+// Login de plataforma: mismo criterio que el login de comercio, pero con su
+// propio contador para que un intento de fuerza bruta contra el superadmin no
+// consuma el cupo de los usuarios de negocio (ni al revés).
+export const plataformaLoginLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  limit: 5,
+  skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: mensaje("Demasiados intentos de inicio de sesión. Probá de nuevo en 5 minutos."),
+});
+
+// Alta de comercios: es el único endpoint público de escritura (crea filas y
+// calcula bcrypt), así que es el más caro de abusar.
+export const registroLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hora
+  limit: 5, // 5 registros
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: mensaje("Demasiados registros desde esta dirección. Probá de nuevo más tarde."),
+});
+
+// Límite general, generoso a propósito: un comercio con varias cajas comparte
+// la misma IP.
+export const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 1000,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: mensaje("Demasiadas solicitudes. Probá de nuevo en unos minutos."),
+});

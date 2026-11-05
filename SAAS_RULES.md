@@ -30,10 +30,6 @@
   de otro comercio). La validación debe ser explícita en servicio, no solo FK.
 - `R-TEN-05` — Los listados y agregados (incluida `GET /estadisticas/recaudacion`)
   solo devuelven datos del comercio del solicitante.
-- `R-TEN-06` — Los identificadores públicos de Mercado Pago
-  (`mercadoPagoPreferenceId`, `mercadoPagoPaymentId`, `external_reference`) no
-  deben permitir enumerar ventas de otros comercios. La resolución webhook debe
-  revalidar pertenencia antes de mutar.
 - `Estado actual`: hoy **no existe** ningún modelo `Comercio`, ningún campo
   `comercioId` y ningún filtro por comercio. El JWT (`src/service/usuario.service.ts`)
   solo firma `{ id, rol }`. Cualquier usuario autenticado puede leer cualquier registro.
@@ -52,11 +48,11 @@
   "máximo N ADMIN por comercio"** (propuesta: al menos 1, sin límite superior
   global). El alcance global actual rompería el SaaS.
 - `R-ROL-04` — Cada venta confirmada debe registrar quién la realizó
-  (`Venta.vendedorId → Usuario`, obligatorio para ventas directas y MP).
+  (`Venta.vendedorId → Usuario`, obligatorio para ventas directas).
   `Estado actual`: `Venta` no tiene `usuarioId/vendedorId`; imposible auditar quién vendió.
 - `R-ROL-05` — `MovimientoStock` debe registrar quién lo originó cuando lo genera
   un usuario (`responsableId → Usuario`, nullable para movimientos generados por
-  webhook/sistema). `Estado actual`: sin trazabilidad.
+  el sistema). `Estado actual`: sin trazabilidad.
 - `R-ROL-06` — Un usuario desactivado (`activo=false`) o de otro comercio no
   puede autenticarse, refrescar token ni ser atribuido a nuevas ventas.
   El middleware debe revalidar `activo + comercio` además de la firma JWT.
@@ -64,17 +60,15 @@
 ## 3. Ventas: inmutabilidad y estados
 
 Estados vigentes hoy (`prisma/schema.prisma`): `PENDIENTE, COMPLETADA, ANULADA, RECHAZADA`.
-Caminos vigentes hoy (`src/service/venta.service.ts`):
-`EFECTIVO/TRANSFERENCIA/TARJETA → crearVentaDirecta (COMPLETADA inmediata)`,
-`PEDIDO_DISTANCIA → iniciarVentaConMercadoPago (PENDIENTE) + confirmarPago por webhook`.
+Camino vigente hoy (`src/service/venta.service.ts`):
+`EFECTIVO/TRANSFERENCIA/TARJETA → crearVentaDirecta (COMPLETADA inmediata)`.
+El método de pago solo se registra; el sistema no procesa pagos.
 
 - `R-VTA-01` — Una venta en `COMPLETADA` es **inmutable**: no admite `PUT` ni
   `DELETE` libre. `Estado actual`: `PUT /ventas/:id` (`src/routes/venta.routes.ts:16`
   + `ventaService.update`) permite cambiar `estado/metodoPago` sin control de
   transición y `DELETE /ventas/:id` borra en duro con cascade a detalles.
 - `R-VTA-02` — Transiciones permitidas (propuesta):
-  `PENDIENTE → COMPLETADA` (solo webhook MP verificado),
-  `PENDIENTE → RECHAZADA` (solo webhook),
   `PENDIENTE → ANULADA` (ADMIN del comercio, antes del cobro),
   `COMPLETADA → ANULADA` (solo ADMIN del comercio, con movimiento compensatorio
   de stock y motivo obligatorio; nunca borrado físico).
@@ -97,7 +91,7 @@ AJUSTE: nuevo=cantidad`, todo en `prisma.$transaction(update producto + create m
 
 - `R-STK-01` — Todo cambio de `Producto.stock` ocurre dentro de una transacción
   que persiste el `MovimientoStock` correspondiente (`stockAnterior`, `stockNuevo`).
-  Sin excepciones, incluido el camino MP y la anulación.
+  Sin excepciones, incluida la anulación.
 - `R-STK-02` — Prohibido stock negativo: revalidar dentro de la transacción y
   respaldar con restricción a nivel BD (`CHECK (stock >= 0)` propuesto).
   El chequeo previo fuera de la transacción no basta (condición de carrera).
@@ -113,27 +107,14 @@ AJUSTE: nuevo=cantidad`, todo en `prisma.$transaction(update producto + create m
   oversell: usar actualización condicional (`updateMany where { stock >= cantidad }`)
   o bloqueo pesimista + restricción única donde aplique. Los tests actuales
   mockean `$transaction` (`(cb) => cb({})`) y **no prueban atomicidad real**.
-- `R-STK-06` — Webhook MP idempotente: doble notificación (secuencial o concurrente)
-  del mismo `paymentId` descuenta stock una sola vez. `Estado actual`: solo hay
-  guard secuencial `if (estado !== PENDIENTE) return` (`venta.service.ts:200`),
-  insuficiente ante concurrencia; `mercadoPagoPaymentId` no es único.
 
-## 5. Pagos con Mercado Pago (sin facturación fiscal)
+## 5. Registro de pagos (sin procesar pagos)
 
-- `R-MP-01` — La venta MP nace `PENDIENTE` **sin tocar stock**; solo el webhook
-  verificado la lleva a `COMPLETADA` (con descuento) o `RECHAZADA` (sin descuento).
-- `R-MP-02` — Si falla la creación de la preferencia, no debe quedar una venta
-  `PENDIENTE` huérfana: compensar (marcar `ANULADA` con motivo `error_preferencia`)
-  o crear la preferencia antes de persistir (decisión en `TECHNICAL_DESIGN.md`).
-  `Estado actual`: `iniciarVentaConMercadoPago` crea la venta antes de llamar a MP,
-  sin rollback.
-- `R-MP-03` — Si el webhook aprueba pero no hay stock, la venta no queda
-  `PENDIENTE` para siempre en silencio: definir estado final (`RECHAZADA` o
-  `ANULADA` por falta de stock) + alerta al comercio. `Estado actual`: lanza
-  `Conflict` dentro del `tx` y la venta queda `PENDIENTE` tras un cobro real.
-- `R-MP-04` — El webhook debe verificar firma/secreto de MP, responder `200`
-  rápido y procesar en forma idempotente (ver `R-STK-06`). `Estado actual`:
-  `POST /ventas/webhook` es público sin verificación (`src/routes/venta.routes.ts:14`).
+- `R-PAG-01` — El sistema solo registra el método de pago de la venta
+  (`EFECTIVO`, `TRANSFERENCIA`, `TARJETA`). No procesa pagos, no cobra y no se
+  integra con pasarelas de pago.
+- `R-PAG-02` — Una venta registrada con cualquier método se completa de inmediato
+  y descuenta stock de forma atómica.
 
 ## 6. Seguridad de API (pre-publicación SaaS)
 
@@ -143,7 +124,7 @@ AJUSTE: nuevo=cantidad`, todo en `prisma.$transaction(update producto + create m
 - `R-SEC-02` — CORS restrictivo: hoy `app.use(cors())` abierto (`src/app.ts:15`).
   Fijar `origin` al frontend real, sin credenciales amplias.
 - `R-SEC-03` — Endurecimiento HTTP: `helmet`, `rate-limit` (en especial
-  `login/refresh/webhook`), `express.json({ limit })`, `morgan` no-`dev` en prod.
+  `login/refresh`), `express.json({ limit })`, `morgan` no-`dev` en prod.
   Hoy ninguno existe (`package.json` verificado).
 - `R-SEC-04` — Validar `params/query` con Zod (hoy `validate` solo cubre `body`;
   `Number(req.params.id)` y `page/limit` sin tope permiten `NaN`/DoS).
@@ -154,7 +135,7 @@ AJUSTE: nuevo=cantidad`, todo en `prisma.$transaction(update producto + create m
   y detección de reuso (hoy viaja en body JSON, reuso solo da `401` sin alarma).
 - `R-SEC-07` — Secretos: nunca commitear `.env`, nunca hardcodear `DATABASE_URL`
   (ver riesgo R0 abajo), nunca copiar valores reales a docs. Las variables de
-  ejemplo van sin valores (`FRONTEND_URL`, `BACKEND_URL`, `MERCADOPAGO_ACCESS_TOKEN`, etc.).
+  ejemplo van sin valores.
 - `R-SEC-08` — Matriz de permisos por rol (propuesta mínima):
   `Categorías/Productos escritura: ADMIN | lectura: autenticado del comercio.
   Movimientos crear: ADMIN+VENDEDOR | editar/borrar: nadie o ADMIN con auditoría.
@@ -199,7 +180,7 @@ AJUSTE: nuevo=cantidad`, todo en `prisma.$transaction(update producto + create m
   `src/middlewares/errorHandler.ts` con `P2002→409, P2025→404`).
 - `R-QLT-02` — Cada cambio de servicio con `comercioId` debe acompañarse de tests
   que prueben aislamiento (acceso cruzado → `404`, no `403` con filtración) y los
-  casos de concurrencia/idempotencia de `R-STK-05/R-STK-06`.
+  casos de concurrencia de `R-STK-05`.
 - `R-QLT-03` — Prohibido modificar BD reales, generar migraciones o commitear
   desde esta fase de diseño. Los cambios de schema viven solo como propuesta en
   `docs/TECHNICAL_DESIGN.md` hasta su etapa correspondiente en

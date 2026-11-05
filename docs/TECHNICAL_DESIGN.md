@@ -33,26 +33,24 @@ Cliente (compu/celular, fuera de repo)
   creado en `$transaction` junto al `update` de stock. `PUT/DELETE /movimientos`
   editan/borran historia sin compensar.
 - Clientes: soft delete (`activo:false`), pero `findById` sin filtro `activo`.
-- Ventas: `iniciarVenta` bifurca por `METODOS_MERCADO_PAGO = ["PEDIDO_DISTANCIA"]`
-  (`src/service/venta.service.ts:30`). Directa (`EFECTIVO/TRANSFERENCIA/TARJETA`)
-  → `COMPLETADA` inmediata en tx. MP → `PENDIENTE` (creada **antes** de llamar a MP,
-  sin tx) + `Preference.create(external_reference=ventaId)` + `confirmarPago`
-  por `POST /ventas/webhook` público sin firma, con guard secuencial
-  `if (estado !== PENDIENTE) return`. `PUT/DELETE /ventas` libres.
+- Ventas: `iniciarVenta` registra una venta directa
+  (`EFECTIVO/TRANSFERENCIA/TARJETA`) → `COMPLETADA` inmediata en tx, con descuento
+  atómico de stock. El método de pago solo se registra; el sistema no procesa pagos.
+  `PUT/DELETE /ventas` libres.
 - Estadísticas: `GET /estadisticas/recaudacion?desde&hasta` **sin auth**
   (importa `verificarToken` pero no lo usa), suma `COMPLETADA` en rango.
 - Tests: 38 Vitest mockeados (`movimiento 11, venta 12, usuario 15`), `$transaction`
   falseado, sin probar atomicidad/concurrencia/aislamiento. `categoria/cliente/
   producto/estadistica` sin tests.
 - Migraciones: 6 (`init` + `activo_cliente` + `usuario` + `refresh_token` +
-  `estados_venta_mp` + `metodo_pedido_distancia`). Sin `comercioId` en ninguna tabla.
+  dos de ventas). Sin `comercioId` en ninguna tabla.
 
 ### 1.2 Esquema actual (resumen)
 
 `Categoria ─1:N─ Producto ─1:N─ MovimientoStock`
 `Producto ─1:N─ DetalleVenta ─N:1─ Venta ─N:1─ Cliente (opcional, SET NULL)`
 `Usuario ─1:N─ RefreshToken`
-Enums: `TipoMovimiento{ENTRADA,SALIDA,AJUSTE}`, `MetodoPago{EFECTIVO,TRANSFERENCIA,TARJETA,PEDIDO_DISTANCIA}`,
+Enums: `TipoMovimiento{ENTRADA,SALIDA,AJUSTE}`, `MetodoPago{EFECTIVO,TRANSFERENCIA,TARJETA}`,
 `EstadoVenta{PENDIENTE,COMPLETADA,ANULADA,RECHAZADA}`, `RolUsuario{ADMIN,VENDEDOR}`.
 Sin `@@index`, con un solo `onDelete(Cascade)` explícito (`Detalle→Venta`).
 Sin `Venta.usuarioId`, sin `Movimiento.usuarioId`, sin `Venta.fechaActualizacion`.
@@ -132,7 +130,7 @@ model Producto {
 model MovimientoStock {
 + comercioId Int
 + comercio   Comercio @relation(fields: [comercioId], references: [id], onDelete: Restrict)
-+ responsableId Int?                       // R-ROL-05: quién lo generó (nullable = sistema/webhook)
++ responsableId Int?                       // R-ROL-05: quién lo generó (nullable = sistema)
 + responsable Usuario? @relation("MovimientoResponsable", fields: [responsableId], references: [id], onDelete: SetNull)
 + @@index([comercioId, productoId, fecha])
 }
@@ -151,9 +149,7 @@ model Venta {
 + comercio   Comercio @relation(fields: [comercioId], references: [id], onDelete: Restrict)
 + vendedorId Int                            // R-ROL-04: obligatorio
 + vendedor   Usuario  @relation("VentaVendedor", fields: [vendedorId], references: [id], onDelete: Restrict)
-+ fechaActualizacion DateTime @updatedAt    // audita PENDIENTE→COMPLETADA
-  mercadoPagoPreferenceId String?           // + @@unique donde aplique (ver §3.4)
-  mercadoPagoPaymentId    String?           // + @@unique propuesto
++ fechaActualizacion DateTime @updatedAt    // auditoría de cambios de estado
 + @@index([comercioId, estado, fecha])
 + @@index([comercioId, clienteId])
 }
@@ -187,7 +183,7 @@ Relaciones `Usuario` inversas a añadir (propuesto):
 - Normalización en servicio (no solo BD): `email.trim().toLowerCase()`,
   `nombre.trim()` + comparación case-insensitive para categorías.
 
-### 3.4 Idempotencia y concurrencia (stock + MP)
+### 3.4 Concurrencia de stock y reglas de negocio
 
 1. **Stock sin oversell (propuesto):** mantener `$transaction` actual y añadir
    dentro del `tx` actualización condicional:
@@ -195,17 +191,7 @@ Relaciones `Usuario` inversas a añadir (propuesto):
    Si `count===0` → `ConflictError("Stock insuficiente")`. Añadir
    `CHECK (stock >= 0)` en migración. El `findById` previo queda como validación
    de UX, no como garantía.
-2. **Webhook idempotente (propuesto):** `mercadoPagoPaymentId @unique` +
-   transición condicional `updateMany({ where: { id, comercioId, estado: PENDIENTE }, data: { estado: COMPLETADA, ... } })`.
-   Si `count===0`, otro worker ya la procesó → retornar sin tocar stock.
-   Alternativa si el proveedor no garantiza `paymentId` estable: tabla
-   `WebhookEvent{ provider, eventId @unique, ventaId, estado }` y `upsert` primero.
-3. **Creación MP sin huérfanas (propuesto, 2 opciones):**
-   - A (recomendada): crear `Preference` **antes** de persistir la venta cuando sea
-     posible, o envolver `create venta + create preferencia + update preferenceId`
-     con compensación: `catch → update venta { estado: ANULADA, motivo }`.
-   - B: job de limpieza que anula `PENDIENTE` sin `preferenceId` tras N minutos.
-4. **Admin único por comercio (propuesto):** reemplazar
+2. **Admin único por comercio (propuesto):** reemplazar
    `findByRol("ADMIN")` global por `count({ where: { comercioId, rol: ADMIN, activo: true } })`
    y, para cerrar TOCTOU, apoyo en `@@unique` parcial o transacción serializable en
    `create/update` a ADMIN (documentar que dos altas concurrentes hoy pasarían el check).
@@ -252,7 +238,7 @@ Venta.comercioId = Producto.comercioId = Cliente.comercioId (validado en servici
 |---|---|
 | `middlewares/auth.middleware.ts` | JWT con `comercioId`; `verificarToken` revalida `activo+comercio`; exporta `AuthRequest { auth: { usuarioId, rol, comercioId } }`. Mantener `esAdmin` (ahora "admin del comercio"). |
 | `middlewares/validate.ts` | Extender a `body/params/query` con Zod; tope `limit<=50`;diffiere formato `{ ok:false, mensaje }` actual. |
-| `controllers/*` | Extraen `comercioId/vendedorId` de `req.auth` y los pasan a servicios. `ventaController.create` pasa `vendedorId`. `webhook` verifica firma antes de llamar al servicio. |
+| `controllers/*` | Extraen `comercioId/vendedorId` de `req.auth` y los pasan a servicios. `ventaController.create` pasa `vendedorId`. |
 | `service/*` | Validación cruzada: `producto.categoria.comercioId === comercioId`, `cliente.comercioId === comercioId`, `detalle.producto.comercioId === comercioId`. Regla admin-por-comercio. Máquina de estados de venta (`R-VTA-02`). |
 | `repositores/*` | Firma con `comercioId` obligatorio en entidades tenant. Sin método "global" salvo alta de comercio. |
 | `routes/*` | `GET /estadisticas/recaudacion` pasa a `verificarToken`; `PUT/DELETE /ventas` y `PUT/DELETE /movimientos` se restringen según `R-SEC-08/R-VTA-01/R-STK-04`. |
@@ -267,29 +253,26 @@ Ordenados por severidad; referencias al código real:
    usar `--secret`/build-arg o solo runtime `env_file`. (No se reproduce el valor aquí.)
 2. **`GET /estadisticas/recaudacion` pública** (`estadistica.routes.ts:7`) — expone
    recaudación. Cerrar con auth antes de cualquier deploy SaaS.
-3. **Webhook MP sin firma** (`venta.routes.ts:14`, `venta.controller.ts:39-47`) —
-   permite oráculo de `paymentId` y reintentos maliciosos. Exigir verificación HMAC.
-4. **`PUT/DELETE /ventas` libres** (`venta.service.ts:253-276`) — permiten completar/
+3. **`PUT/DELETE /ventas` libres** (`venta.service.ts:253-276`) — permiten completar/
    borrar ventas confirmadas y descuadrar stock/estadísticas. Bloquear según `R-VTA-01`.
-5. **Condición de carrera de stock** (`venta.service.ts:104-145,186-238`,
+4. **Condición de carrera de stock** (`venta.service.ts:104-145,186-238`,
    `movimiento.service.ts:41-78`) — `find` fuera/dentro sin lock + tests con
    `$transaction` mockeado. Implementar §3.4 + `CHECK`.
-6. **Venta MP huérfana / PENDIENTE eterna** (`venta.service.ts:152-184,204-250`) —
-   sin compensación ante fallo de preferencia ni ante falta de stock post-cobro.
-7. **CORS abierto + sin helmet/rate-limit** (`app.ts:15`, `package.json`) —
-   fijar origin, límites y throttling en `login/refresh/webhook`.
-8. **`JWT_SECRET as string` sin fail-fast + sin revalidación de `activo`** —
+5. **CORS abierto + sin helmet/rate-limit** (`app.ts:15`, `package.json`) —
+   fijar origin, límites y throttling en `login/refresh`.
+6. **`JWT_SECRET as string` sin fail-fast + sin revalidación de `activo`** —
    arranque inseguro y sesiones de desactivados válidas 1h.
-9. **Unicidades globales + sin índices** — bloquean multiempresa y degradan
+7. **Unicidades globales + sin índices** — bloquean multiempresa y degradan
    rendimiento; migrar a `@@unique/@@index` compuestos (§3.2–3.3).
-10. **Falta trazabilidad `vendedorId/responsableId`** — sin ella no se cumple
-    "cada venta registra quién la realizó" ni se auditan ajustes.
+8. **Falta trazabilidad `vendedorId/responsableId`** — sin ella no se cumple
+   "cada venta registra quién la realizó" ni se auditan ajustes.
 
 ## 7. Lo que NO cambia en esta fase
 
 - Formato de respuesta `{ ok, mensaje, data, meta }` y códigos de `utils/errors.ts`.
 - Enums `TipoMovimiento/MetodoPago/EstadoVenta/RolUsuario` (solo cambia el alcance
   de la regla admin, no el enum).
-- Flujo MP de dos caminos (directo vs `PEDIDO_DISTANCIA`); no se agregan métodos.
+- Registro del método de pago (`EFECTIVO/TRANSFERENCIA/TARJETA`); el sistema no
+  procesa pagos ni se integra con pasarelas.
 - Sin `Plan/Suscripcion/FacturaFiscal`, sin panel super-admin global, sin seeds
   cruzados entre comercios.

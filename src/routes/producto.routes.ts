@@ -7,6 +7,7 @@ import { productoSchema, updateProductoSchema } from "../validators/producto.val
 const router = Router();
 
 router.get("/", verificarToken, productoController.getAll);
+router.get("/codigo/:codigo", verificarToken, productoController.getByCodigoBarras);
 router.get("/:id", verificarToken, productoController.getById);
 router.post("/", verificarToken, esAdmin, validate(productoSchema), productoController.create);
 router.put("/:id", verificarToken, esAdmin, validate(updateProductoSchema), productoController.update);

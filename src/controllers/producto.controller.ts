@@ -1,12 +1,15 @@
 import { Request, Response } from "express";
 import { productoService } from "../service/producto.service";
+import { AuthRequest, requireComercio } from "../middlewares/auth.middleware";
+import { leerPaginacion } from "../utils/paginacion";
+import { BadRequestError } from "../utils/errors";
+import { codigoBarrasSchema } from "../validators/producto.validation";
 
 export const productoController = {
   getAll: async (req: Request, res: Response) => {
-    const page = Number(req.query.page) || 1;
-    const limit = Number(req.query.limit) || 10;
+    const { page, limit } = leerPaginacion(req.query);
 
-    const resultado = await productoService.getAll(page, limit);
+    const resultado = await productoService.getAll(requireComercio(req as AuthRequest), page, limit);
     res.status(200).json({
       ok: true,
       mensaje: "Productos obtenidos",
@@ -16,22 +19,37 @@ export const productoController = {
   },
 
   create: async (req: Request, res: Response) => {
-    const productoCreado = await productoService.create(req.body);
+    const productoCreado = await productoService.create(req.body, requireComercio(req as AuthRequest));
     res.status(201).json({ ok: true, mensaje: "Producto creado", data: productoCreado });
   },
 
   getById: async (req: Request, res: Response) => {
-    const productoObtenido = await productoService.getById(Number(req.params.id));
+    const productoObtenido = await productoService.getById(Number(req.params.id), requireComercio(req as AuthRequest));
+    res.status(200).json({ ok: true, mensaje: "Producto obtenido", data: productoObtenido });
+  },
+
+  getByCodigoBarras: async (req: Request, res: Response) => {
+    const codigo = codigoBarrasSchema.safeParse(req.params.codigo);
+    if (!codigo.success) {
+      throw new BadRequestError(
+        codigo.error.issues[0]?.message ?? "Código de barras inválido",
+      );
+    }
+
+    const productoObtenido = await productoService.getByCodigoBarras(
+      codigo.data,
+      requireComercio(req as AuthRequest),
+    );
     res.status(200).json({ ok: true, mensaje: "Producto obtenido", data: productoObtenido });
   },
 
   update: async (req: Request, res: Response) => {
-    const productoActualizado = await productoService.update(Number(req.params.id), req.body);
+    const productoActualizado = await productoService.update(Number(req.params.id), requireComercio(req as AuthRequest), req.body);
     res.status(200).json({ ok: true, mensaje: "Producto actualizado", data: productoActualizado });
   },
 
   delete: async (req: Request, res: Response) => {
-    const productoEliminado = await productoService.delete(Number(req.params.id));
+    const productoEliminado = await productoService.delete(Number(req.params.id), requireComercio(req as AuthRequest));
     res.status(200).json({ ok: true, mensaje: "Producto eliminado", data: productoEliminado });
   },
 };

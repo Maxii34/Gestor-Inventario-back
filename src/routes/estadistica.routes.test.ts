@@ -39,13 +39,22 @@ describe("estadistica.routes: GET /recaudacion protegida", () => {
     expect(() => verificarToken(req, res, next as any)).toThrow(UnauthorizedError);
   });
 
-  it("con token válido fija req.usuario y llama next (comportamiento esperado conservado)", () => {
-    vi.mocked(jwt.verify).mockReturnValue({ id: 1, rol: "ADMIN" } as any);
+  it("con token válido fija req.usuario (con comercio) y llama next (comportamiento esperado conservado)", () => {
+    vi.mocked(jwt.verify).mockReturnValue({ id: 1, rol: "ADMIN", comercioId: 1 } as any);
     const req = { headers: { authorization: "Bearer token-valido" } } as any;
     const res = {} as any;
     const nextFn = vi.fn();
     verificarToken(req, res, nextFn as any);
-    expect(req.usuario).toEqual({ id: 1, rol: "ADMIN" });
+    expect(req.usuario).toEqual({ id: 1, rol: "ADMIN", comercioId: 1 });
     expect(nextFn).toHaveBeenCalledOnce();
+  });
+
+  it("rechaza token legacy sin comercioId (fail-closed)", () => {
+    vi.mocked(jwt.verify).mockReturnValue({ id: 1, rol: "ADMIN" } as any);
+    const req = { headers: { authorization: "Bearer token-viejo" } } as any;
+    const res = {} as any;
+    const nextFn = vi.fn();
+    expect(() => verificarToken(req, res, nextFn as any)).toThrow(UnauthorizedError);
+    expect(nextFn).not.toHaveBeenCalled();
   });
 });

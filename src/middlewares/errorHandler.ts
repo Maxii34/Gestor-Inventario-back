@@ -31,6 +31,14 @@ export const errorHandler = (
       // P2025 = intentaste actualizar/borrar un registro que no existe
       return res.status(404).json({ ok: false, mensaje: "Registro no encontrado" });
     }
+    if (err.code === "P2003") {
+      // P2003 = violación de clave foránea: el registro tiene dependencias
+      // (ej: borrar una categoría con productos, o un producto con movimientos/ventas)
+      return res.status(409).json({
+        ok: false,
+        mensaje: "No se puede completar la operación: hay registros asociados",
+      });
+    }
   }
 
   // Caso 3: cualquier otro error no previsto (bug real)
