@@ -9,7 +9,7 @@ export const productoRepository = {
       where: { comercioId },
       skip,
       take,
-      orderBy: { id: "asc" },
+      orderBy: { id: "desc" },
       include: { categoria: true },
     }),
 

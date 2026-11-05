@@ -35,7 +35,7 @@ export const usuarioRepository = {
       skip,
       take,
       select: seleccionSinPassword,
-      orderBy: { id: 'asc' },
+      orderBy: { id: 'desc' },
     }),
 
   count: (comercioId: number, q?: string) =>

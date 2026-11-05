@@ -19,7 +19,7 @@ export const categoriaRepository = {
       where: construirWhere(comercioId, q),
       skip,
       take,
-      orderBy: { id: "asc" },
+      orderBy: { id: "desc" },
     }),
 
   count: (comercioId: number, q?: string) =>

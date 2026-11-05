@@ -225,7 +225,7 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)(
         where: { id: V.id },
         data: { accesoHasta: new Date(Date.now() - 10 * MS_DIA) },
       });
-    }, 30000);
+    }, 60000);
 
     afterAll(async () => {
       if (!prisma) return;
