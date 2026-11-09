@@ -10,7 +10,12 @@ export const ventaRepository = {
       skip,
       take,
       orderBy: { fecha: "desc" },
-      include: { detalles: true, cliente: true },
+      include: {
+        detalles: true,
+        cliente: true,
+        vendedor: { select: { id: true, nombre: true, rol: true } },
+        anuladoPor: { select: { id: true, nombre: true, rol: true } },
+      },
     }),
 
   count: (comercioId: number) => prisma.venta.count({ where: { comercioId } }),
@@ -18,7 +23,12 @@ export const ventaRepository = {
   findById: (id: number, comercioId: number, tx?: PrismaTx) =>
     (tx ?? prisma).venta.findFirst({
       where: { id, comercioId },
-      include: { detalles: { include: { producto: true } }, cliente: true },
+      include: {
+        detalles: { include: { producto: true } },
+        cliente: true,
+        vendedor: { select: { id: true, nombre: true, rol: true } },
+        anuladoPor: { select: { id: true, nombre: true, rol: true } },
+      },
     }),
 
   create: (data: Prisma.VentaCreateInput, tx?: PrismaTx) =>
