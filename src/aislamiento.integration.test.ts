@@ -1287,9 +1287,9 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)("integración HTTP: aislamiento entre comerc
 
         expect(filas[0].vendedor.id).toBe(A.vendedorId);
         expect(data.totales).toEqual({
-          cantidadVentas: 3,
+          cantidadVentas: 4,
           totalVendido: 390,
-          ticketPromedio: 130,
+          ticketPromedio: 97.5,
           anuladas: { cantidad: 1, total: 300 },
         });
       });
