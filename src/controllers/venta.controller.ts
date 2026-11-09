@@ -2,13 +2,27 @@ import { Request, Response } from "express";
 import { ventaService } from "../service/venta.service";
 import { AuthRequest, requireComercio } from "../middlewares/auth.middleware";
 import { leerPaginacion } from "../utils/paginacion";
+import { BadRequestError } from "../utils/errors";
+import { ventasQuerySchema } from "../validators/venta.validation";
 
 export const ventaController = {
 
   getAll: async (req: Request, res: Response) => {
     const { page, limit } = leerPaginacion(req.query);
 
-    const resultado = await ventaService.getAll(requireComercio(req as AuthRequest), page, limit);
+    const filtros = ventasQuerySchema.safeParse(req.query);
+    if (!filtros.success) {
+      throw new BadRequestError(
+        filtros.error.issues[0]?.message ?? "Filtros de ventas inválidos"
+      );
+    }
+
+    const resultado = await ventaService.getAll(
+      requireComercio(req as AuthRequest),
+      page,
+      limit,
+      filtros.data
+    );
     res.status(200).json({
       ok: true,
       mensaje: "Ventas obtenidas correctamente",

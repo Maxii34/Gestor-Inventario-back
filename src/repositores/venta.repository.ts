@@ -1,12 +1,57 @@
 import { prisma } from "../config/prisma";
-import { Prisma } from "../generated/prisma/client";
+import { EstadoVenta, MetodoPago, Prisma } from "../generated/prisma/client";
+import { finDeDiaArgentina, inicioDeDiaArgentina } from "../utils/fechas";
 
 type PrismaTx = Prisma.TransactionClient;
 
+export interface FiltrosVenta {
+  vendedorId?: number;
+  desde?: string;
+  hasta?: string;
+  estado?: EstadoVenta;
+  metodoPago?: MetodoPago;
+}
+
+// Único constructor del where de ventas: findAll y count lo comparten para que
+// el listado y el total paginado nunca se calculen con filtros distintos.
+export const construirWhereVentas = (
+  comercioId: number,
+  filtros: FiltrosVenta = {}
+): Prisma.VentaWhereInput => {
+  const where: Prisma.VentaWhereInput = { comercioId };
+
+  if (filtros.vendedorId !== undefined) {
+    where.vendedorId = filtros.vendedorId;
+  }
+  if (filtros.estado !== undefined) {
+    where.estado = filtros.estado;
+  }
+  if (filtros.metodoPago !== undefined) {
+    where.metodoPago = filtros.metodoPago;
+  }
+  if (filtros.desde !== undefined || filtros.hasta !== undefined) {
+    const fecha: Prisma.DateTimeFilter = {};
+    if (filtros.desde !== undefined) {
+      fecha.gte = inicioDeDiaArgentina(filtros.desde);
+    }
+    if (filtros.hasta !== undefined) {
+      fecha.lte = finDeDiaArgentina(filtros.hasta);
+    }
+    where.fecha = fecha;
+  }
+
+  return where;
+};
+
 export const ventaRepository = {
-  findAll: (comercioId: number, skip?: number, take?: number) =>
+  findAll: (
+    comercioId: number,
+    skip?: number,
+    take?: number,
+    filtros: FiltrosVenta = {}
+  ) =>
     prisma.venta.findMany({
-      where: { comercioId },
+      where: construirWhereVentas(comercioId, filtros),
       skip,
       take,
       orderBy: { fecha: "desc" },
@@ -18,7 +63,8 @@ export const ventaRepository = {
       },
     }),
 
-  count: (comercioId: number) => prisma.venta.count({ where: { comercioId } }),
+  count: (comercioId: number, filtros: FiltrosVenta = {}) =>
+    prisma.venta.count({ where: construirWhereVentas(comercioId, filtros) }),
 
   findById: (id: number, comercioId: number, tx?: PrismaTx) =>
     (tx ?? prisma).venta.findFirst({
