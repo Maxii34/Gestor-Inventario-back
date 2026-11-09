@@ -1,5 +1,5 @@
 import { prisma } from "../config/prisma";
-import { ventaRepository } from "../repositores/venta.repository";
+import { FiltrosVenta, ventaRepository } from "../repositores/venta.repository";
 import { productoRepository } from "../repositores/producto.repository";
 import { movimientoRepository } from "../repositores/movimiento.repository";
 import { clienteRepository } from "../repositores/cliente.repository";
@@ -61,12 +61,17 @@ const construirDetalles = async (detalles: DetalleInput[], comercioId: number) =
 };
 
 export const ventaService = {
-  getAll: async (comercioId: number, page: number, limit: number) => {
+  getAll: async (
+    comercioId: number,
+    page: number,
+    limit: number,
+    filtros: FiltrosVenta = {}
+  ) => {
     const skip = (page - 1) * limit;
 
     const [ventas, total] = await Promise.all([
-      ventaRepository.findAll(comercioId, skip, limit),
-      ventaRepository.count(comercioId),
+      ventaRepository.findAll(comercioId, skip, limit, filtros),
+      ventaRepository.count(comercioId, filtros),
     ]);
 
     return {
