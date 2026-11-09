@@ -80,6 +80,15 @@ export const usuarioRepository = {
       select: seleccionSinPassword,
     }),
 
+  // Todos los usuarios del comercio (activos e inactivos) para resúmenes que
+  // deben incluir también a quienes no registraron ventas.
+  findResumenPorComercio: (comercioId: number) =>
+    prisma.usuario.findMany({
+      where: { comercioId },
+      select: { id: true, nombre: true, rol: true, activo: true },
+      orderBy: { id: "asc" },
+    }),
+
   create: (data: Prisma.UsuarioCreateInput, tx?: PrismaTx) =>
     (tx ?? prisma).usuario.create({ data }),
 
