@@ -956,6 +956,475 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)("integración HTTP: aislamiento entre comerc
   });
 
   // ------------------------------------------------------------------ 12
+  describe("ventas por vendedor, filtros y día argentino", () => {
+    let productoSecundarioA: number;
+    let ventaVendedorA: number;
+    let usuarioSinVentasA: number;
+    let ventaAdminA: number;
+    let ventaAdmin2A: number;
+    let ventaVendedorCompletadaA: number;
+    let ventaVendedorAnuladaA: number;
+    let ventaSinVendedorA: number;
+    let ventaPendienteA: number;
+    let ventaBordeA: number;
+
+    const rangoMarzo = "?desde=2021-03-01&hasta=2021-03-31";
+    const idsDe = (res: request.Response) =>
+      (res.body.data as { id: number }[]).map((venta) => venta.id);
+
+    beforeAll(async () => {
+      productoSecundarioA = await crear("/productos", A.token, {
+        nombre: `Producto vendedores ${sufijo}`,
+        precioCompra: 50,
+        precioVenta: 100,
+        stock: 100,
+        stockMinimo: 1,
+        categoriaId: A.categoriaId,
+      });
+
+      const ventaVendedor = await llamar("post", "/ventas", A.vendedorToken, {
+        metodoPago: "EFECTIVO",
+        detalles: [{ productoId: productoSecundarioA, cantidad: 1 }],
+      });
+      expect(ventaVendedor.status, JSON.stringify(ventaVendedor.body)).toBe(201);
+      ventaVendedorA = ventaVendedor.body.data.ventaId;
+
+      usuarioSinVentasA = await crear("/usuarios", A.token, {
+        nombre: "Sin Ventas A",
+        email: `sin-ventas-${sufijo}@test.com`,
+        password: "123456",
+      });
+
+      const crearVenta = (data: {
+        total: number;
+        metodoPago: "EFECTIVO" | "TRANSFERENCIA" | "TARJETA";
+        estado: "COMPLETADA" | "ANULADA" | "PENDIENTE";
+        vendedorId?: number | null;
+        anuladoPorId?: number | null;
+        fecha: Date;
+      }) =>
+        prisma.venta.create({
+          data: { comercioId: A.comercioId, ...data },
+        });
+
+      ventaAdminA = (
+        await crearVenta({
+          total: 100,
+          metodoPago: "EFECTIVO",
+          estado: "COMPLETADA",
+          vendedorId: A.adminId,
+          fecha: new Date("2021-03-10T15:00:00.000Z"),
+        })
+      ).id;
+      ventaAdmin2A = (
+        await crearVenta({
+          total: 50,
+          metodoPago: "TRANSFERENCIA",
+          estado: "COMPLETADA",
+          vendedorId: A.adminId,
+          fecha: new Date("2021-03-15T15:00:00.000Z"),
+        })
+      ).id;
+      ventaVendedorCompletadaA = (
+        await crearVenta({
+          total: 200,
+          metodoPago: "TARJETA",
+          estado: "COMPLETADA",
+          vendedorId: A.vendedorId,
+          fecha: new Date("2021-03-05T15:00:00.000Z"),
+        })
+      ).id;
+      ventaVendedorAnuladaA = (
+        await crearVenta({
+          total: 300,
+          metodoPago: "EFECTIVO",
+          estado: "ANULADA",
+          vendedorId: A.vendedorId,
+          anuladoPorId: A.adminId,
+          fecha: new Date("2021-03-20T15:00:00.000Z"),
+        })
+      ).id;
+      ventaSinVendedorA = (
+        await crearVenta({
+          total: 40,
+          metodoPago: "EFECTIVO",
+          estado: "COMPLETADA",
+          vendedorId: null,
+          fecha: new Date("2021-03-12T15:00:00.000Z"),
+        })
+      ).id;
+      ventaPendienteA = (
+        await crearVenta({
+          total: 999,
+          metodoPago: "EFECTIVO",
+          estado: "PENDIENTE",
+          vendedorId: A.adminId,
+          fecha: new Date("2021-03-11T15:00:00.000Z"),
+        })
+      ).id;
+      // 23:30 del 9 de mayo en Argentina = 02:30 UTC del 10 de mayo.
+      ventaBordeA = (
+        await crearVenta({
+          total: 77,
+          metodoPago: "EFECTIVO",
+          estado: "COMPLETADA",
+          vendedorId: A.vendedorId,
+          fecha: new Date("2021-05-10T02:30:00.000Z"),
+        })
+      ).id;
+    }, 30000);
+
+    describe("quién realizó la venta", () => {
+      it("una venta del administrador trae nombre y rol, nunca email ni password", async () => {
+        const res = await llamar("get", `/ventas/${A.ventaId}`, A.token);
+        expect(res.status).toBe(200);
+        expect(res.body.data.vendedor).toEqual({
+          id: A.adminId,
+          nombre: "Admin a",
+          rol: "ADMIN",
+        });
+        expect(res.body.data.vendedor).not.toHaveProperty("email");
+        expect(res.body.data.vendedor).not.toHaveProperty("password");
+      });
+
+      it("una venta del vendedor trae nombre y rol, nunca email ni password", async () => {
+        const res = await llamar("get", `/ventas/${ventaVendedorA}`, A.token);
+        expect(res.status).toBe(200);
+        expect(res.body.data.vendedor).toEqual({
+          id: A.vendedorId,
+          nombre: "Vendedor A",
+          rol: "VENDEDOR",
+        });
+        expect(res.body.data.vendedor).not.toHaveProperty("email");
+        expect(res.body.data.vendedor).not.toHaveProperty("password");
+      });
+
+      it("el listado expone vendedor y anuladoPor solo con id, nombre y rol", async () => {
+        const res = await llamar("get", `/ventas${rangoMarzo}`, A.token);
+        expect(res.status).toBe(200);
+        for (const venta of res.body.data as any[]) {
+          if (venta.vendedor) {
+            expect(Object.keys(venta.vendedor).sort()).toEqual(["id", "nombre", "rol"]);
+          }
+          if (venta.anuladoPor) {
+            expect(Object.keys(venta.anuladoPor).sort()).toEqual(["id", "nombre", "rol"]);
+          }
+        }
+      });
+
+      it("el movimiento de stock trae el responsable con nombre y rol, sin email ni password", async () => {
+        const res = await llamar("get", `/movimientos/${A.movimientoId}`, A.token);
+        expect(res.status).toBe(200);
+        expect(res.body.data.responsable).toEqual({
+          id: A.adminId,
+          nombre: "Admin a",
+          rol: "ADMIN",
+        });
+        expect(res.body.data.responsable).not.toHaveProperty("email");
+        expect(res.body.data.responsable).not.toHaveProperty("password");
+      });
+    });
+
+    describe("filtros de GET /ventas", () => {
+      it("filtra por vendedorId", async () => {
+        const res = await llamar(
+          "get",
+          `/ventas${rangoMarzo}&vendedorId=${A.vendedorId}`,
+          A.token
+        );
+        expect(res.status).toBe(200);
+        expect(idsDe(res).sort()).toEqual(
+          [ventaVendedorCompletadaA, ventaVendedorAnuladaA].sort()
+        );
+        expect(res.body.meta.total).toBe(2);
+        expect(
+          (res.body.data as any[]).every((venta) => venta.vendedor?.id === A.vendedorId)
+        ).toBe(true);
+      });
+
+      it("filtra por estado", async () => {
+        const completadas = await llamar(
+          "get",
+          `/ventas${rangoMarzo}&estado=COMPLETADA`,
+          A.token
+        );
+        expect(idsDe(completadas).sort()).toEqual(
+          [
+            ventaAdminA,
+            ventaAdmin2A,
+            ventaVendedorCompletadaA,
+            ventaSinVendedorA,
+          ].sort()
+        );
+        expect(completadas.body.meta.total).toBe(4);
+
+        const anuladas = await llamar(
+          "get",
+          `/ventas${rangoMarzo}&estado=ANULADA`,
+          A.token
+        );
+        expect(idsDe(anuladas)).toEqual([ventaVendedorAnuladaA]);
+        expect(anuladas.body.meta.total).toBe(1);
+      });
+
+      it("filtra por metodoPago", async () => {
+        const res = await llamar(
+          "get",
+          `/ventas${rangoMarzo}&metodoPago=TARJETA`,
+          A.token
+        );
+        expect(idsDe(res)).toEqual([ventaVendedorCompletadaA]);
+      });
+
+      it("filtra por fechas usando los bordes del día argentino", async () => {
+        const res = await llamar(
+          "get",
+          "/ventas?desde=2021-03-15&hasta=2021-03-20",
+          A.token
+        );
+        expect(res.status).toBe(200);
+        expect(idsDe(res).sort()).toEqual(
+          [ventaAdmin2A, ventaVendedorAnuladaA].sort()
+        );
+      });
+
+      it("combina vendedor, estado y fechas", async () => {
+        const res = await llamar(
+          "get",
+          `/ventas${rangoMarzo}&vendedorId=${A.vendedorId}&estado=COMPLETADA`,
+          A.token
+        );
+        expect(idsDe(res)).toEqual([ventaVendedorCompletadaA]);
+        expect(res.body.meta.total).toBe(1);
+      });
+
+      it("ignora parámetros desconocidos", async () => {
+        const conDesconocido = await llamar(
+          "get",
+          `/ventas${rangoMarzo}&foo=bar&otro=1`,
+          A.token
+        );
+        const sinDesconocido = await llamar("get", `/ventas${rangoMarzo}`, A.token);
+        expect(conDesconocido.status).toBe(200);
+        expect(conDesconocido.body.meta.total).toBe(sinDesconocido.body.meta.total);
+      });
+
+      it.each([
+        ["vendedorId=0", "vendedorId=0"],
+        ["vendedorId=abc", "vendedorId=abc"],
+        ["desde=2021-02-31", "desde=2021-02-31&hasta=2021-03-01"],
+        ["desde posterior a hasta", "desde=2021-03-31&hasta=2021-03-01"],
+        ["rango de más de 366 días", "desde=2020-01-01&hasta=2021-03-01"],
+        ["estado inválido", "estado=OTRO"],
+        ["metodoPago inválido", "metodoPago=OTRO"],
+      ])("responde 400 con %s", async (_nombre, query) => {
+        const res = await llamar("get", `/ventas?${query}`, A.token);
+        expect(res.status, JSON.stringify(res.body)).toBe(400);
+        expect(typeof res.body.mensaje).toBe("string");
+      });
+    });
+
+    describe("GET /estadisticas/vendedores", () => {
+      it("devuelve cantidades, totales, tickets y anuladas por vendedor", async () => {
+        const res = await llamar(
+          "get",
+          `/estadisticas/vendedores${rangoMarzo}`,
+          A.token
+        );
+        expect(res.status, JSON.stringify(res.body)).toBe(200);
+        const data = res.body.data;
+        expect(data.desde).toBe("2021-03-01");
+        expect(data.hasta).toBe("2021-03-31");
+
+        const filas = data.filas as any[];
+        const admin = filas.find((fila) => fila.vendedor?.id === A.adminId);
+        const vendedor = filas.find((fila) => fila.vendedor?.id === A.vendedorId);
+        const sinVentas = filas.find((fila) => fila.vendedor?.id === usuarioSinVentasA);
+        const sinVendedor = filas.find((fila) => fila.vendedor === null);
+
+        expect(admin).toEqual({
+          vendedor: { id: A.adminId, nombre: "Admin a", rol: "ADMIN", activo: true },
+          cantidadVentas: 2,
+          totalVendido: 150,
+          ticketPromedio: 75,
+          anuladas: { cantidad: 0, total: 0 },
+          ultimaVenta: "2021-03-15T15:00:00.000Z",
+        });
+        expect(vendedor).toEqual({
+          vendedor: {
+            id: A.vendedorId,
+            nombre: "Vendedor A",
+            rol: "VENDEDOR",
+            activo: true,
+          },
+          cantidadVentas: 1,
+          totalVendido: 200,
+          ticketPromedio: 200,
+          anuladas: { cantidad: 1, total: 300 },
+          ultimaVenta: "2021-03-20T15:00:00.000Z",
+        });
+        expect(sinVentas).toEqual({
+          vendedor: {
+            id: usuarioSinVentasA,
+            nombre: "Sin Ventas A",
+            rol: "VENDEDOR",
+            activo: true,
+          },
+          cantidadVentas: 0,
+          totalVendido: 0,
+          ticketPromedio: 0,
+          anuladas: { cantidad: 0, total: 0 },
+          ultimaVenta: null,
+        });
+        expect(sinVendedor).toEqual({
+          vendedor: null,
+          cantidadVentas: 1,
+          totalVendido: 40,
+          ticketPromedio: 40,
+          anuladas: { cantidad: 0, total: 0 },
+          ultimaVenta: "2021-03-12T15:00:00.000Z",
+        });
+
+        expect(filas[0].vendedor.id).toBe(A.vendedorId);
+        expect(data.totales).toEqual({
+          cantidadVentas: 3,
+          totalVendido: 390,
+          ticketPromedio: 130,
+          anuladas: { cantidad: 1, total: 300 },
+        });
+      });
+
+      it("usa el mes actual argentino cuando no recibe fechas", async () => {
+        const res = await llamar("get", "/estadisticas/vendedores", A.token);
+        expect(res.status).toBe(200);
+        expect(res.body.data.desde).toMatch(/^\d{4}-\d{2}-01$/);
+        expect(res.body.data.hasta).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      });
+
+      it("un vendedor recibe 403 y sin token 401", async () => {
+        expect(
+          (
+            await llamar(
+              "get",
+              `/estadisticas/vendedores${rangoMarzo}`,
+              A.vendedorToken
+            )
+          ).status
+        ).toBe(403);
+        expect(
+          (await llamar("get", `/estadisticas/vendedores${rangoMarzo}`)).status
+        ).toBe(401);
+      });
+
+      it("valida el rango con las mismas reglas", async () => {
+        expect(
+          (
+            await llamar(
+              "get",
+              "/estadisticas/vendedores?desde=2021-02-31",
+              A.token
+            )
+          ).status
+        ).toBe(400);
+        expect(
+          (
+            await llamar(
+              "get",
+              "/estadisticas/vendedores?desde=2021-03-31&hasta=2021-03-01",
+              A.token
+            )
+          ).status
+        ).toBe(400);
+      });
+    });
+
+    describe("bordes de día argentino", () => {
+      it("una venta de 23:30 ART cae en su día y no en el siguiente", async () => {
+        const dia = await llamar(
+          "get",
+          "/ventas?desde=2021-05-09&hasta=2021-05-09",
+          A.token
+        );
+        expect(idsDe(dia)).toContain(ventaBordeA);
+
+        const siguiente = await llamar(
+          "get",
+          "/ventas?desde=2021-05-10&hasta=2021-05-10",
+          A.token
+        );
+        expect(idsDe(siguiente)).not.toContain(ventaBordeA);
+      });
+
+      it("la estadística por vendedor también la ubica en su día argentino", async () => {
+        const res = await llamar(
+          "get",
+          "/estadisticas/vendedores?desde=2021-05-09&hasta=2021-05-09",
+          A.token
+        );
+        const fila = (res.body.data.filas as any[]).find(
+          (item) => item.vendedor?.id === A.vendedorId
+        );
+        expect(fila.cantidadVentas).toBe(1);
+        expect(fila.totalVendido).toBe(77);
+      });
+
+      it("la recaudación respeta el día de Argentina", async () => {
+        const dia = await llamar(
+          "get",
+          "/estadisticas/recaudacion?desde=2021-05-09&hasta=2021-05-09",
+          A.token
+        );
+        expect(dia.status).toBe(200);
+        expect(dia.body.data.totalRecaudado).toBe(77);
+
+        const siguiente = await llamar(
+          "get",
+          "/estadisticas/recaudacion?desde=2021-05-10&hasta=2021-05-10",
+          A.token
+        );
+        expect(siguiente.body.data.totalRecaudado).toBe(0);
+      });
+    });
+
+    describe("el comercio B no ve datos de A en filtros ni estadísticas", () => {
+      it("los filtros de ventas de B no devuelven ventas de A", async () => {
+        const porFecha = await llamar("get", `/ventas${rangoMarzo}`, B.token);
+        expect(porFecha.status).toBe(200);
+        expect(idsDe(porFecha)).toEqual([]);
+        expect(porFecha.body.meta.total).toBe(0);
+
+        const porVendedor = await llamar(
+          "get",
+          `/ventas${rangoMarzo}&vendedorId=${A.vendedorId}`,
+          B.token
+        );
+        expect(idsDe(porVendedor)).toEqual([]);
+        expect(porVendedor.body.meta.total).toBe(0);
+      });
+
+      it("la estadística de B no incluye usuarios ni importes de A", async () => {
+        const res = await llamar(
+          "get",
+          `/estadisticas/vendedores${rangoMarzo}`,
+          B.token
+        );
+        expect(res.status).toBe(200);
+        const filas = res.body.data.filas as any[];
+        const ids = filas
+          .filter((fila) => fila.vendedor)
+          .map((fila) => fila.vendedor.id);
+
+        expect(ids).not.toContain(A.adminId);
+        expect(ids).not.toContain(A.vendedorId);
+        expect(ids).not.toContain(usuarioSinVentasA);
+        expect(
+          filas.every((fila) => fila.cantidadVentas === 0 && fila.totalVendido === 0)
+        ).toBe(true);
+      });
+    });
+  });
+
+  // ------------------------------------------------------------------ 13
   describe("invariante final", () => {
     it("tras todos los ataques, los recursos originales de A siguen iguales", async () => {
       const ahora = await leerEstadoA();
