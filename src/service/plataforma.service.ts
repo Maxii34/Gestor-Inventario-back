@@ -643,7 +643,8 @@ const listarUsuariosComercio = async (
   comercioId: number,
   page: number,
   limit: number,
-  q?: string
+  q?: string,
+  incluirBajas = false
 ) => {
   const comercio = await plataformaRepository.findComercioById(comercioId);
   if (!comercio) {
@@ -655,8 +656,14 @@ const listarUsuariosComercio = async (
   const skip = (page - 1) * limit;
 
   const [usuarios, total] = await Promise.all([
-    plataformaRepository.findUsuariosDeComercio(comercioId, skip, limit, filtro),
-    plataformaRepository.countUsuariosDeComercio(comercioId, filtro),
+    plataformaRepository.findUsuariosDeComercio(
+      comercioId,
+      skip,
+      limit,
+      filtro,
+      incluirBajas
+    ),
+    plataformaRepository.countUsuariosDeComercio(comercioId, filtro, incluirBajas),
   ]);
 
   return {
@@ -687,7 +694,7 @@ const editarUsuarioComercio = async (
         usuarioId,
         tx
       );
-      if (!usuario) {
+      if (!usuario || usuario.fechaBaja) {
         throw new NotFoundError("Usuario no encontrado");
       }
 
@@ -816,7 +823,7 @@ const resetearPasswordUsuario = async (
       usuarioId,
       tx
     );
-    if (!usuario) {
+    if (!usuario || usuario.fechaBaja) {
       throw new NotFoundError("Usuario no encontrado");
     }
 
