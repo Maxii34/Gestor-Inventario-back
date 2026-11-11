@@ -9,6 +9,7 @@ import {
   cargaMasivaProductosSchema,
   crearComercioPlataformaSchema,
   editarUsuarioPlataformaSchema,
+  eliminarComercioSchema,
   extenderAccesoSchema,
   loginPlataformaSchema,
   registrarPagoSchema,
@@ -74,6 +75,12 @@ router.post(
   "/comercios/:id/reactivar",
   verificarSuperadmin,
   plataformaController.reactivarComercio
+);
+router.post(
+  "/comercios/:id/eliminar",
+  verificarSuperadmin,
+  validate(eliminarComercioSchema),
+  plataformaController.eliminarComercio
 );
 router.post(
   "/comercios/:id/extender",
