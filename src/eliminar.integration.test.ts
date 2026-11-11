@@ -646,6 +646,11 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)("integración HTTP: eliminar negocios y empl
 
     it("el único administrador da 409", async () => {
       const hash = await bcrypt.hash("123456", 10);
+      await prisma.usuario.update({
+        where: { id: soloAdmin.adminId },
+        data: { activo: false },
+      });
+
       const segundoAdmin = await prisma.usuario.create({
         data: {
           nombre: `Segundo admin ${sufijo}`,
@@ -654,11 +659,6 @@ describe.skipIf(!ES_BASE_EXCLUSIVA)("integración HTTP: eliminar negocios y empl
           rol: "ADMIN",
           comercio: { connect: { id: soloAdmin.id } },
         },
-      });
-
-      await prisma.usuario.update({
-        where: { id: soloAdmin.adminId },
-        data: { activo: false },
       });
 
       const res = await llamar(
