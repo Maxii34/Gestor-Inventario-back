@@ -15,6 +15,8 @@ import {
   UnauthorizedError,
 } from "../utils/errors";
 import { calcularNuevoAcceso } from "../utils/suscripcion";
+import { finDeDiaArgentina, inicioDeDiaArgentina } from "../utils/fechas";
+import { invalidarVigencia } from "../middlewares/vigencia.middleware";
 
 vi.mock("../repositores/plataforma.repository");
 vi.mock("../repositores/superadmin.repository");
@@ -23,6 +25,9 @@ vi.mock("../repositores/producto.repository");
 vi.mock("./comercio.service");
 vi.mock("bcrypt");
 vi.mock("jsonwebtoken");
+vi.mock("../middlewares/vigencia.middleware", () => ({
+  invalidarVigencia: vi.fn(),
+}));
 const { txMock } = vi.hoisted(() => ({ txMock: {} }));
 vi.mock("../config/prisma", () => ({
   prisma: {
@@ -373,6 +378,128 @@ describe("plataformaService.suspenderComercio / reactivarComercio", () => {
   });
 });
 
+describe("plataformaService.eliminarComercio", () => {
+  const ORDEN_BORRADO = [
+    "detalleVenta",
+    "venta",
+    "movimientoStock",
+    "producto",
+    "categoria",
+    "cliente",
+    "proveedor",
+    "usuario",
+  ];
+
+  const comercioEliminable = {
+    id: 5,
+    nombre: "Kiosco",
+    slug: "kiosco",
+    activo: false,
+    plan: "PRUEBA" as const,
+    accesoHasta: new Date("2025-11-15T02:59:59.999Z"),
+    _count: { usuarios: 1, productos: 2, ventas: 3, pagos: 4 },
+  };
+
+  let orden: string[];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    orden = [];
+
+    const txBorrado = tx as Record<string, any>;
+    for (const modelo of [...ORDEN_BORRADO, "comercio"]) {
+      txBorrado[modelo] = {
+        deleteMany: vi.fn(async () => {
+          orden.push(modelo);
+          return { count: 0 };
+        }),
+        delete: vi.fn(async () => {
+          orden.push(modelo);
+          return {};
+        }),
+      };
+    }
+
+    vi.mocked(plataformaRepository.findComercioParaEliminar).mockResolvedValue(
+      comercioEliminable as never
+    );
+    vi.mocked(plataformaRepository.crearAuditoria).mockResolvedValue({} as never);
+  });
+
+  it("borra en el orden pedido, audita el resumen, elimina el comercio al final e invalida la vigencia", async () => {
+    const resultado = await plataformaService.eliminarComercio(
+      5,
+      "kiosco",
+      7,
+      "127.0.0.1"
+    );
+
+    expect(orden).toEqual([...ORDEN_BORRADO, "comercio"]);
+    expect(plataformaRepository.crearAuditoria).toHaveBeenCalledWith(
+      {
+        accion: "ELIMINAR_COMERCIO",
+        detalle: {
+          comercioId: 5,
+          nombre: "Kiosco",
+          slug: "kiosco",
+          plan: "PRUEBA",
+          accesoHasta: "2025-11-15T02:59:59.999Z",
+          conteos: { usuarios: 1, productos: 2, ventas: 3, pagos: 4 },
+        },
+        ip: "127.0.0.1",
+        superadminId: 7,
+        comercioId: null,
+      },
+      tx
+    );
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      timeout: 30_000,
+    });
+    expect(invalidarVigencia).toHaveBeenCalledWith(5);
+    expect(resultado).toEqual({
+      comercioId: 5,
+      nombre: "Kiosco",
+      slug: "kiosco",
+      plan: "PRUEBA",
+      accesoHasta: "2025-11-15T02:59:59.999Z",
+      conteos: { usuarios: 1, productos: 2, ventas: 3, pagos: 4 },
+    });
+  });
+
+  it("404 si el comercio no existe", async () => {
+    vi.mocked(plataformaRepository.findComercioParaEliminar).mockResolvedValue(
+      null
+    );
+
+    await expect(
+      plataformaService.eliminarComercio(999, "kiosco", 7, null)
+    ).rejects.toThrow(NotFoundError);
+    expect(orden).toEqual([]);
+    expect(invalidarVigencia).not.toHaveBeenCalled();
+  });
+
+  it("409 si el comercio sigue activo", async () => {
+    vi.mocked(plataformaRepository.findComercioParaEliminar).mockResolvedValue({
+      ...comercioEliminable,
+      activo: true,
+    } as never);
+
+    await expect(
+      plataformaService.eliminarComercio(5, "kiosco", 7, null)
+    ).rejects.toThrow("Suspendé el negocio antes de eliminarlo");
+    expect(orden).toEqual([]);
+    expect(invalidarVigencia).not.toHaveBeenCalled();
+  });
+
+  it("400 si confirmarSlug no coincide exactamente", async () => {
+    await expect(
+      plataformaService.eliminarComercio(5, "Kiosco", 7, null)
+    ).rejects.toThrow(BadRequestError);
+    expect(orden).toEqual([]);
+    expect(invalidarVigencia).not.toHaveBeenCalled();
+  });
+});
+
 describe("plataformaService.extenderAcceso / cambiarPlan", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -504,6 +631,7 @@ describe("plataformaService.registrarPago", () => {
         accesoDesde: COMERCIO.accesoHasta,
         accesoHasta: esperado,
         comercioId: 5,
+        comercioNombre: "Kiosco",
         registradoPorId: 7,
       }),
       tx
@@ -623,6 +751,116 @@ describe("plataformaService.listarPagos / listarAuditoria", () => {
     await expect(
       plataformaService.listarAuditoria({ comercioId: 999, page: 1, limit: 10 })
     ).rejects.toThrow(NotFoundError);
+  });
+});
+
+describe("plataformaService.listarPagosGlobal", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("pagina todos los pagos, incluidos los de negocios eliminados", async () => {
+    const pagos = [
+      {
+        id: 1,
+        comercioId: null,
+        comercioNombre: "Kiosco viejo",
+        monto: 15000,
+        moneda: "ARS",
+        plan: "MENSUAL",
+        mesesAcreditados: 3,
+        metodo: "TRANSFERENCIA",
+        referencia: "ref-1",
+        fecha: new Date("2025-01-10T12:00:00.000Z"),
+      },
+    ];
+    vi.mocked(plataformaRepository.findPagosGlobal).mockResolvedValue(
+      pagos as never
+    );
+    vi.mocked(plataformaRepository.countPagosGlobal).mockResolvedValue(23);
+
+    const resultado = await plataformaService.listarPagosGlobal({
+      page: 3,
+      limit: 5,
+    });
+
+    expect(plataformaRepository.findPagosGlobal).toHaveBeenCalledWith({}, 10, 5);
+    expect(plataformaRepository.countPagosGlobal).toHaveBeenCalledWith({});
+    expect(resultado.data).toEqual(pagos);
+    expect(resultado.meta).toEqual({
+      total: 23,
+      page: 3,
+      limit: 5,
+      totalPaginas: 5,
+    });
+  });
+
+  it("filtra desde y hasta como días calendario argentinos", async () => {
+    vi.mocked(plataformaRepository.findPagosGlobal).mockResolvedValue([] as never);
+    vi.mocked(plataformaRepository.countPagosGlobal).mockResolvedValue(0);
+
+    await plataformaService.listarPagosGlobal({
+      page: 1,
+      limit: 10,
+      desde: "2025-01-10",
+      hasta: "2025-01-20",
+    });
+
+    expect(plataformaRepository.findPagosGlobal).toHaveBeenCalledWith(
+      {
+        fecha: {
+          gte: inicioDeDiaArgentina("2025-01-10"),
+          lte: finDeDiaArgentina("2025-01-20"),
+        },
+      },
+      0,
+      10
+    );
+    expect(plataformaRepository.countPagosGlobal).toHaveBeenCalledWith({
+      fecha: {
+        gte: inicioDeDiaArgentina("2025-01-10"),
+        lte: finDeDiaArgentina("2025-01-20"),
+      },
+    });
+  });
+
+  it("aplica solo el límite de fecha presente", async () => {
+    vi.mocked(plataformaRepository.findPagosGlobal).mockResolvedValue([] as never);
+    vi.mocked(plataformaRepository.countPagosGlobal).mockResolvedValue(0);
+
+    await plataformaService.listarPagosGlobal({
+      page: 1,
+      limit: 10,
+      hasta: "2025-01-20",
+    });
+
+    expect(plataformaRepository.findPagosGlobal).toHaveBeenCalledWith(
+      { fecha: { lte: finDeDiaArgentina("2025-01-20") } },
+      0,
+      10
+    );
+  });
+
+  it("rechaza fechas inválidas y rangos invertidos sin consultar", async () => {
+    await expect(
+      plataformaService.listarPagosGlobal({
+        page: 1,
+        limit: 10,
+        desde: "2025-02-31",
+      })
+    ).rejects.toThrow(BadRequestError);
+
+    await expect(
+      plataformaService.listarPagosGlobal({
+        page: 1,
+        limit: 10,
+        desde: "2025-01-20",
+        hasta: "2025-01-10",
+      })
+    ).rejects.toThrow(BadRequestError);
+
+    expect(plataformaRepository.findPagosGlobal).not.toHaveBeenCalled();
+    expect(plataformaRepository.countPagosGlobal).not.toHaveBeenCalled();
   });
 });
 
