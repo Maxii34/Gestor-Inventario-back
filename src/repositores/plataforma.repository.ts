@@ -44,6 +44,27 @@ export const plataformaRepository = {
   findComercioById: (id: number, tx?: PrismaTx) =>
     (tx ?? prisma).comercio.findUnique({ where: { id } }),
 
+  findComercioParaEliminar: (id: number, tx?: PrismaTx) =>
+    (tx ?? prisma).comercio.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        nombre: true,
+        slug: true,
+        activo: true,
+        plan: true,
+        accesoHasta: true,
+        _count: {
+          select: {
+            usuarios: true,
+            productos: true,
+            ventas: true,
+            pagos: true,
+          },
+        },
+      },
+    }),
+
   updateComercio: (
     id: number,
     data: Prisma.ComercioUncheckedUpdateInput,

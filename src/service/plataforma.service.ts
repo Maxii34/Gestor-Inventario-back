@@ -366,6 +366,72 @@ const reactivarComercio = async (
   return resultado;
 };
 
+const eliminarComercio = async (
+  id: number,
+  confirmarSlug: string,
+  superadminId: number,
+  ip: string | null
+) => {
+  const resultado = await prisma.$transaction(
+    async (tx) => {
+      const comercio = await plataformaRepository.findComercioParaEliminar(id, tx);
+      if (!comercio) {
+        throw new NotFoundError("Comercio no encontrado");
+      }
+      if (comercio.activo) {
+        throw new ConflictError("Suspendé el negocio antes de eliminarlo");
+      }
+      if (confirmarSlug !== comercio.slug) {
+        throw new BadRequestError("El slug de confirmación no coincide");
+      }
+
+      const resumen = {
+        comercioId: comercio.id,
+        nombre: comercio.nombre,
+        slug: comercio.slug,
+        plan: comercio.plan,
+        accesoHasta: comercio.accesoHasta
+          ? comercio.accesoHasta.toISOString()
+          : null,
+        conteos: {
+          usuarios: comercio._count.usuarios,
+          productos: comercio._count.productos,
+          ventas: comercio._count.ventas,
+          pagos: comercio._count.pagos,
+        },
+      };
+
+      await tx.detalleVenta.deleteMany({ where: { comercioId: id } });
+      await tx.venta.deleteMany({ where: { comercioId: id } });
+      await tx.movimientoStock.deleteMany({ where: { comercioId: id } });
+      await tx.producto.deleteMany({ where: { comercioId: id } });
+      await tx.categoria.deleteMany({ where: { comercioId: id } });
+      await tx.cliente.deleteMany({ where: { comercioId: id } });
+      await tx.proveedor.deleteMany({ where: { comercioId: id } });
+      await tx.usuario.deleteMany({ where: { comercioId: id } });
+
+      await plataformaRepository.crearAuditoria(
+        {
+          accion: AccionPlataforma.ELIMINAR_COMERCIO,
+          detalle: resumen,
+          ip,
+          superadminId,
+          comercioId: null,
+        },
+        tx
+      );
+
+      await tx.comercio.delete({ where: { id } });
+
+      return resumen;
+    },
+    { timeout: 30_000 }
+  );
+
+  invalidarVigencia(id);
+  return resultado;
+};
+
 const extenderAcceso = async (
   id: number,
   dias: number,
@@ -1189,6 +1255,7 @@ export const plataformaService = {
   crearComercio,
   suspenderComercio,
   reactivarComercio,
+  eliminarComercio,
   extenderAcceso,
   cambiarPlan,
   registrarPago,

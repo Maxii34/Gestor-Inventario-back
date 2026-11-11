@@ -68,6 +68,15 @@ export const extenderAccesoSchema = z
   })
   .strict();
 
+export const eliminarComercioSchema = z
+  .object({
+    confirmarSlug: z
+      .string()
+      .min(1, "La confirmación del slug es obligatoria")
+      .max(80),
+  })
+  .strict();
+
 export const cambiarPlanSchema = z
   .object({
     plan: z.enum(["PRUEBA", "MENSUAL", "TRIMESTRAL"]),
@@ -146,6 +155,7 @@ export type LoginPlataformaInput = z.infer<typeof loginPlataformaSchema>;
 export type CrearComercioPlataformaInput = z.infer<typeof crearComercioPlataformaSchema>;
 export type SuspenderComercioInput = z.infer<typeof suspenderComercioSchema>;
 export type ExtenderAccesoInput = z.infer<typeof extenderAccesoSchema>;
+export type EliminarComercioInput = z.infer<typeof eliminarComercioSchema>;
 export type CambiarPlanInput = z.infer<typeof cambiarPlanSchema>;
 export type RegistrarPagoInput = z.infer<typeof registrarPagoSchema>;
 export type EditarUsuarioPlataformaInput = z.infer<typeof editarUsuarioPlataformaSchema>;

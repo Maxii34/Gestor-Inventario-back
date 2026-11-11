@@ -99,6 +99,20 @@ export const plataformaController = {
     });
   },
 
+  eliminarComercio: async (req: Request, res: Response) => {
+    const resultado = await plataformaService.eliminarComercio(
+      parseId(req.params.id),
+      req.body.confirmarSlug,
+      requireSuperadmin(req as PlataformaRequest),
+      req.ip ?? null
+    );
+    res.status(200).json({
+      ok: true,
+      mensaje: "Comercio eliminado",
+      data: resultado,
+    });
+  },
+
   extenderAcceso: async (req: Request, res: Response) => {
     const comercio = await plataformaService.extenderAcceso(
       parseId(req.params.id),
