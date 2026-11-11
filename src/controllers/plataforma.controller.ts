@@ -170,6 +170,22 @@ export const plataformaController = {
     });
   },
 
+  getPagosGlobal: async (req: Request, res: Response) => {
+    const { page, limit } = leerPaginacion(req.query);
+    const resultado = await plataformaService.listarPagosGlobal({
+      page,
+      limit,
+      desde: queryString(req.query.desde),
+      hasta: queryString(req.query.hasta),
+    });
+    res.status(200).json({
+      ok: true,
+      mensaje: "Pagos obtenidos",
+      data: resultado.data,
+      meta: resultado.meta,
+    });
+  },
+
   getUsuariosComercio: async (req: Request, res: Response) => {
     const { page, limit } = leerPaginacion(req.query);
     const incluirBajas = req.query.incluirBajas === "true";

@@ -34,6 +34,11 @@ import {
 } from "../utils/errors";
 import { obtenerSecretoPlataforma } from "../utils/plataformaJwt";
 import { resolverPreciosProducto } from "../utils/precioProducto";
+import {
+  esFechaISOValida,
+  finDeDiaArgentina,
+  inicioDeDiaArgentina,
+} from "../utils/fechas";
 import { invalidarVigencia } from "../middlewares/vigencia.middleware";
 
 export interface LoginPlataformaDTO {
@@ -571,6 +576,7 @@ const registrarPago = async (
         accesoDesde,
         accesoHasta,
         comercioId: id,
+        comercioNombre: comercio.nombre,
         registradoPorId: superadminId,
       },
       tx
@@ -612,6 +618,64 @@ const listarPagos = async (id: number, page: number, limit: number) => {
   const [pagos, total] = await Promise.all([
     plataformaRepository.findPagos(id, skip, limit),
     plataformaRepository.countPagos(id),
+  ]);
+
+  return {
+    data: pagos,
+    meta: { total, page, limit, totalPaginas: Math.ceil(total / limit) },
+  };
+};
+
+interface ListarPagosGlobalDTO {
+  page: number;
+  limit: number;
+  desde?: string;
+  hasta?: string;
+}
+
+const listarPagosGlobal = async ({
+  page,
+  limit,
+  desde,
+  hasta,
+}: ListarPagosGlobalDTO) => {
+  if (desde !== undefined && !esFechaISOValida(desde)) {
+    throw new BadRequestError(
+      "Las fechas 'desde' y 'hasta' deben ser válidas (formato AAAA-MM-DD)"
+    );
+  }
+  if (hasta !== undefined && !esFechaISOValida(hasta)) {
+    throw new BadRequestError(
+      "Las fechas 'desde' y 'hasta' deben ser válidas (formato AAAA-MM-DD)"
+    );
+  }
+
+  const fechaDesde =
+    desde !== undefined ? inicioDeDiaArgentina(desde) : undefined;
+  const fechaHasta =
+    hasta !== undefined ? finDeDiaArgentina(hasta) : undefined;
+
+  if (fechaDesde !== undefined && fechaHasta !== undefined && fechaDesde > fechaHasta) {
+    throw new BadRequestError(
+      "La fecha 'desde' no puede ser posterior a 'hasta'"
+    );
+  }
+
+  const fecha: Prisma.DateTimeFilter<"Pago"> = {};
+  if (fechaDesde !== undefined) {
+    fecha.gte = fechaDesde;
+  }
+  if (fechaHasta !== undefined) {
+    fecha.lte = fechaHasta;
+  }
+
+  const where: Prisma.PagoWhereInput =
+    fechaDesde !== undefined || fechaHasta !== undefined ? { fecha } : {};
+
+  const skip = (page - 1) * limit;
+  const [pagos, total] = await Promise.all([
+    plataformaRepository.findPagosGlobal(where, skip, limit),
+    plataformaRepository.countPagosGlobal(where),
   ]);
 
   return {
@@ -1260,6 +1324,7 @@ export const plataformaService = {
   cambiarPlan,
   registrarPago,
   listarPagos,
+  listarPagosGlobal,
   listarAuditoria,
   listarUsuariosComercio,
   editarUsuarioComercio,

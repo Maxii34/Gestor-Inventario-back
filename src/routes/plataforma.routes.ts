@@ -105,6 +105,11 @@ router.get(
   verificarSuperadmin,
   plataformaController.getPagos
 );
+router.get(
+  "/pagos",
+  verificarSuperadmin,
+  plataformaController.getPagosGlobal
+);
 
 router.get("/auditoria", verificarSuperadmin, plataformaController.getAuditoria);
 router.get("/metricas", verificarSuperadmin, plataformaController.getMetricas);
