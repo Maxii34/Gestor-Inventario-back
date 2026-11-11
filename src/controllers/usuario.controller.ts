@@ -70,9 +70,21 @@ export const usuarioController = {
   },
 
   delete: async (req: Request, res: Response) => {
+    const auth = req as AuthRequest;
     const id = Number(req.params.id);
-    await usuarioService.delete(id, requireComercio(req as AuthRequest));
-    res.status(200).json({ ok: true, mensaje: "Usuario eliminado correctamente", data: null });
+    const resultado = await usuarioService.delete(
+      id,
+      requireComercio(auth),
+      auth.usuario!.id
+    );
+    res.status(200).json({
+      ok: true,
+      mensaje:
+        resultado.modo === "ELIMINADO"
+          ? "Usuario eliminado correctamente"
+          : "Usuario dado de baja correctamente",
+      data: resultado,
+    });
   },
 
 };

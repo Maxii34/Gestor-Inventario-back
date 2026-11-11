@@ -1,10 +1,11 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
+import { prisma } from "../config/prisma";
 import { usuarioRepository } from "../repositores/usuario.repository";
 import { refreshTokenRepository } from "../repositores/refreshToken.repository";
 import { comercioRepository } from "../repositores/comercio.repository";
-import { RolUsuario } from "../generated/prisma/client";
+import { Prisma, RolUsuario } from "../generated/prisma/client";
 import {
   NotFoundError,
   ConflictError,
@@ -294,21 +295,58 @@ export const usuarioService = {
     return usuarioRepository.update(id, comercioId, data);
   },
 
-  delete: async (id: number, comercioId: number) => {
-    const usuario = await usuarioRepository.findById(id, comercioId);
-    if (!usuario) {
-      throw new NotFoundError("Usuario no encontrado");
-    }
+  delete: async (id: number, comercioId: number, usuarioActualId: number) => {
+    try {
+      return await prisma.$transaction(async (tx) => {
+        const usuario = await usuarioRepository.findByIdParaEliminar(
+          id,
+          comercioId,
+          tx
+        );
+        if (!usuario) {
+          throw new NotFoundError("Usuario no encontrado");
+        }
 
-    if (usuario.rol === "ADMIN") {
-      const admins = await usuarioRepository.findByRol(comercioId, "ADMIN");
-      if (admins.length <= 1) {
-        throw new ConflictError("No se puede eliminar el único administrador del comercio");
+        if (id === usuarioActualId) {
+          throw new ConflictError("No podés eliminar tu propio usuario");
+        }
+
+        if (usuario.rol === "ADMIN" && usuario.activo) {
+          const admins = await usuarioRepository.findByRol(comercioId, "ADMIN", tx);
+          if (admins.length <= 1) {
+            throw new ConflictError(
+              "No se puede eliminar el único administrador del comercio"
+            );
+          }
+        }
+
+        const tieneHistorial =
+          usuario._count.ventasRealizadas > 0 ||
+          usuario._count.ventasAnuladas > 0 ||
+          usuario._count.movimientosGenerados > 0;
+
+        if (tieneHistorial) {
+          await refreshTokenRepository.revocarTodosDeUsuario(id, tx);
+          await usuarioRepository.darDeBaja(id, comercioId, tx);
+          return { modo: "BAJA" as const };
+        }
+
+        await usuarioRepository.delete(id, comercioId, tx);
+        return { modo: "ELIMINADO" as const };
+      });
+    } catch (error) {
+      // Si una FK impide el borrado físico, se conserva el historial con baja.
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2003"
+      ) {
+        await prisma.$transaction(async (tx) => {
+          await refreshTokenRepository.revocarTodosDeUsuario(id, tx);
+          await usuarioRepository.darDeBaja(id, comercioId, tx);
+        });
+        return { modo: "BAJA" as const };
       }
+      throw error;
     }
-
-    // Al desactivar un usuario, además revocamos todas sus sesiones activas
-    await refreshTokenRepository.revocarTodosDeUsuario(id);
-    return usuarioRepository.delete(id, comercioId);
   },
 };

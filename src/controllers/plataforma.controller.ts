@@ -158,11 +158,13 @@ export const plataformaController = {
 
   getUsuariosComercio: async (req: Request, res: Response) => {
     const { page, limit } = leerPaginacion(req.query);
+    const incluirBajas = req.query.incluirBajas === "true";
     const resultado = await plataformaService.listarUsuariosComercio(
       parseId(req.params.id),
       page,
       limit,
-      queryString(req.query.q)
+      queryString(req.query.q),
+      incluirBajas
     );
     res.status(200).json({
       ok: true,

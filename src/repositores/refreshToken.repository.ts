@@ -1,4 +1,7 @@
 import { prisma } from "../config/prisma";
+import { Prisma } from "../generated/prisma/client";
+
+type PrismaTx = Prisma.TransactionClient;
 
 export const refreshTokenRepository = {
   create: (usuarioId: number, token: string, expiraEn: Date) =>
@@ -13,8 +16,8 @@ export const refreshTokenRepository = {
       data: { revocado: true },
     }),
 
-  revocarTodosDeUsuario: (usuarioId: number) =>
-    prisma.refreshToken.updateMany({
+  revocarTodosDeUsuario: (usuarioId: number, tx?: PrismaTx) =>
+    (tx ?? prisma).refreshToken.updateMany({
       where: { usuarioId, revocado: false },
       data: { revocado: true },
     }),

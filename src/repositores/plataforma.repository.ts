@@ -72,11 +72,13 @@ export const plataformaRepository = {
     comercioId: number,
     skip: number,
     take: number,
-    q?: string
+    q?: string,
+    incluirBajas = false
   ) =>
     prisma.usuario.findMany({
       where: {
         comercioId,
+        ...(incluirBajas ? {} : { fechaBaja: null }),
         ...(q
           ? {
               OR: [
@@ -95,15 +97,21 @@ export const plataformaRepository = {
         email: true,
         rol: true,
         activo: true,
+        fechaBaja: true,
         debeCambiarPassword: true,
         fechaCreacion: true,
       },
     }),
 
-  countUsuariosDeComercio: (comercioId: number, q?: string) =>
+  countUsuariosDeComercio: (
+    comercioId: number,
+    q?: string,
+    incluirBajas = false
+  ) =>
     prisma.usuario.count({
       where: {
         comercioId,
+        ...(incluirBajas ? {} : { fechaBaja: null }),
         ...(q
           ? {
               OR: [
@@ -128,6 +136,7 @@ export const plataformaRepository = {
         email: true,
         rol: true,
         activo: true,
+        fechaBaja: true,
         debeCambiarPassword: true,
         fechaCreacion: true,
       },
@@ -168,6 +177,7 @@ export const plataformaRepository = {
         email: true,
         rol: true,
         activo: true,
+        fechaBaja: true,
         debeCambiarPassword: true,
         fechaCreacion: true,
       },
