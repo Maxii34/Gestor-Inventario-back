@@ -1,3 +1,7 @@
+import { finDeDiaArgentina } from "./fechas";
+
+export { finDeDiaArgentina } from "./fechas";
+
 export const DIAS_PRUEBA = 14;
 export const DIAS_GRACIA = 3;
 
@@ -63,22 +67,6 @@ function sumarDias(fecha: Date, dias: number): Date {
   const horaArgentina = aHoraArgentina(fecha);
   horaArgentina.setUTCDate(horaArgentina.getUTCDate() + dias);
   return desdeHoraArgentina(horaArgentina);
-}
-
-export function finDeDiaArgentina(fecha: Date): Date {
-  const horaArgentina = aHoraArgentina(fecha);
-  const finDelDia = new Date(
-    Date.UTC(
-      horaArgentina.getUTCFullYear(),
-      horaArgentina.getUTCMonth(),
-      horaArgentina.getUTCDate(),
-      23,
-      59,
-      59,
-      999
-    )
-  );
-  return desdeHoraArgentina(finDelDia);
 }
 
 export function calcularNuevoAcceso({

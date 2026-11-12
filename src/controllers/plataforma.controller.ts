@@ -99,6 +99,20 @@ export const plataformaController = {
     });
   },
 
+  eliminarComercio: async (req: Request, res: Response) => {
+    const resultado = await plataformaService.eliminarComercio(
+      parseId(req.params.id),
+      req.body.confirmarSlug,
+      requireSuperadmin(req as PlataformaRequest),
+      req.ip ?? null
+    );
+    res.status(200).json({
+      ok: true,
+      mensaje: "Comercio eliminado",
+      data: resultado,
+    });
+  },
+
   extenderAcceso: async (req: Request, res: Response) => {
     const comercio = await plataformaService.extenderAcceso(
       parseId(req.params.id),
@@ -156,13 +170,31 @@ export const plataformaController = {
     });
   },
 
+  getPagosGlobal: async (req: Request, res: Response) => {
+    const { page, limit } = leerPaginacion(req.query);
+    const resultado = await plataformaService.listarPagosGlobal({
+      page,
+      limit,
+      desde: queryString(req.query.desde),
+      hasta: queryString(req.query.hasta),
+    });
+    res.status(200).json({
+      ok: true,
+      mensaje: "Pagos obtenidos",
+      data: resultado.data,
+      meta: resultado.meta,
+    });
+  },
+
   getUsuariosComercio: async (req: Request, res: Response) => {
     const { page, limit } = leerPaginacion(req.query);
+    const incluirBajas = req.query.incluirBajas === "true";
     const resultado = await plataformaService.listarUsuariosComercio(
       parseId(req.params.id),
       page,
       limit,
-      queryString(req.query.q)
+      queryString(req.query.q),
+      incluirBajas
     );
     res.status(200).json({
       ok: true,

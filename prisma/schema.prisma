@@ -212,6 +212,7 @@ model Usuario {
   password            String
   rol                 RolUsuario @default(VENDEDOR)
   activo              Boolean    @default(true)
+  fechaBaja           DateTime?
   debeCambiarPassword Boolean    @default(false)
 
   comercioId Int
@@ -268,8 +269,9 @@ model Pago {
   accesoDesde      DateTime
   accesoHasta      DateTime
 
-  comercioId Int
-  comercio   Comercio @relation(fields: [comercioId], references: [id], onDelete: Restrict)
+  comercioId    Int?
+  comercio      Comercio? @relation(fields: [comercioId], references: [id], onDelete: SetNull)
+  comercioNombre String?
 
   registradoPorId Int
   registradoPor   Superadmin @relation(fields: [registradoPorId], references: [id], onDelete: Restrict)
@@ -289,7 +291,7 @@ model AuditoriaPlataforma {
   superadmin   Superadmin @relation(fields: [superadminId], references: [id], onDelete: Restrict)
 
   comercioId Int?
-  comercio   Comercio? @relation(fields: [comercioId], references: [id], onDelete: Restrict)
+  comercio   Comercio? @relation(fields: [comercioId], references: [id], onDelete: SetNull)
 
   fecha DateTime @default(now())
 
@@ -311,6 +313,7 @@ enum MetodoCobro {
 
 enum AccionPlataforma {
   CREAR_COMERCIO
+  ELIMINAR_COMERCIO
   SUSPENDER
   REACTIVAR
   EXTENDER_ACCESO

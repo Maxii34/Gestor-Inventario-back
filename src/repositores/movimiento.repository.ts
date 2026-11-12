@@ -10,7 +10,10 @@ export const movimientoRepository = {
       skip,
       take,
       orderBy: { fecha: "desc" }, // más recientes primero, y evita resultados inconsistentes entre páginas
-      include: { producto: true },
+      include: {
+        producto: true,
+        responsable: { select: { id: true, nombre: true, rol: true } },
+      },
     }),
 
   count: (comercioId: number) => prisma.movimientoStock.count({ where: { comercioId } }),
@@ -18,7 +21,10 @@ export const movimientoRepository = {
   findById: (id: number, comercioId: number, tx?: PrismaTx) =>
     (tx ?? prisma).movimientoStock.findFirst({
       where: { id, comercioId },
-      include: { producto: true },
+      include: {
+        producto: true,
+        responsable: { select: { id: true, nombre: true, rol: true } },
+      },
     }),
 
   create: (data: Prisma.MovimientoStockCreateInput, tx?: PrismaTx) =>

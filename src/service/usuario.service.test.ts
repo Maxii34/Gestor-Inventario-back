@@ -3,6 +3,8 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { usuarioService } from "./usuario.service";
+import { prisma } from "../config/prisma";
+import { Prisma } from "../generated/prisma/client";
 import { usuarioRepository } from "../repositores/usuario.repository";
 import { refreshTokenRepository } from "../repositores/refreshToken.repository";
 import { comercioRepository } from "../repositores/comercio.repository";
@@ -14,6 +16,9 @@ import {
   BadRequestError,
 } from "../utils/errors";
 
+vi.mock("../config/prisma", () => ({
+  prisma: { $transaction: vi.fn() },
+}));
 vi.mock("../repositores/usuario.repository");
 vi.mock("../repositores/refreshToken.repository");
 vi.mock("../repositores/comercio.repository");
@@ -63,6 +68,7 @@ const usuarioFalso = {
   password: "hash-guardado-en-bd",
   rol: "ADMIN" as const,
   activo: true,
+  fechaBaja: null,
   debeCambiarPassword: false,
   comercioId: 1,
   fechaCreacion: new Date(),
@@ -376,45 +382,123 @@ it("permite desactivar a un ADMIN si hay otro administrador activo", async () =>
 });
 
 describe("usuarioService.delete", () => {
+  const tx = {};
+
+  const sinHistorial = (cambios: Record<string, unknown> = {}) => ({
+    id: 3,
+    rol: "VENDEDOR" as const,
+    activo: true,
+    _count: { ventasRealizadas: 0, ventasAnuladas: 0, movimientosGenerados: 0 },
+    ...cambios,
+  });
+
+  const errorP2003 = () =>
+    new Prisma.PrismaClientKnownRequestError("FK constraint", {
+      code: "P2003",
+      clientVersion: "test",
+    });
+
   beforeEach(() => {
     vi.clearAllMocks();
+    (prisma.$transaction as any).mockImplementation(async (cb: any) => cb(tx));
   });
 
   it("lanza NotFoundError si el usuario no existe en ese comercio", async () => {
-    vi.mocked(usuarioRepository.findById).mockResolvedValue(null);
+    vi.mocked(usuarioRepository.findByIdParaEliminar).mockResolvedValue(null);
 
-    await expect(usuarioService.delete(999, 1)).rejects.toThrow(NotFoundError);
-    expect(usuarioRepository.findById).toHaveBeenCalledWith(999, 1);
+    await expect(usuarioService.delete(999, 1, 2)).rejects.toThrow(NotFoundError);
+    expect(usuarioRepository.findByIdParaEliminar).toHaveBeenCalledWith(999, 1, tx);
   });
 
-  it("lanza ConflictError si es el único ADMIN del comercio", async () => {
-    vi.mocked(usuarioRepository.findById).mockResolvedValue(usuarioFalso); // rol: ADMIN
-    vi.mocked(usuarioRepository.findByRol).mockResolvedValue([usuarioFalso]); // solo 1 admin
+  it("lanza ConflictError si intenta eliminarse a sí mismo", async () => {
+    vi.mocked(usuarioRepository.findByIdParaEliminar).mockResolvedValue(
+      sinHistorial({ id: 1, rol: "ADMIN" }) as any
+    );
 
-    await expect(usuarioService.delete(1, 1)).rejects.toThrow(ConflictError);
+    await expect(usuarioService.delete(1, 1, 1)).rejects.toThrow(
+      "No podés eliminar tu propio usuario"
+    );
+    expect(usuarioRepository.delete).not.toHaveBeenCalled();
   });
 
-  it("permite eliminar un ADMIN si hay más de uno en el comercio", async () => {
-    const otroAdmin = { ...usuarioFalso, id: 2 };
-    vi.mocked(usuarioRepository.findById).mockResolvedValue(usuarioFalso);
-    vi.mocked(usuarioRepository.findByRol).mockResolvedValue([usuarioFalso, otroAdmin]); // hay 2
-    vi.mocked(refreshTokenRepository.revocarTodosDeUsuario).mockResolvedValue({} as any);
-    vi.mocked(usuarioRepository.delete).mockResolvedValue(usuarioFalso);
+  it("lanza ConflictError si es el único ADMIN activo del comercio", async () => {
+    const admin = sinHistorial({ id: 1, rol: "ADMIN" });
+    vi.mocked(usuarioRepository.findByIdParaEliminar).mockResolvedValue(admin as any);
+    vi.mocked(usuarioRepository.findByRol).mockResolvedValue([admin] as any);
 
-    await usuarioService.delete(1, 1);
-
-    expect(usuarioRepository.delete).toHaveBeenCalledWith(1, 1);
+    await expect(usuarioService.delete(1, 1, 2)).rejects.toThrow(ConflictError);
+    expect(usuarioRepository.delete).not.toHaveBeenCalled();
   });
 
-  it("revoca todas las sesiones activas del usuario al eliminarlo", async () => {
-    const vendedor = { ...usuarioFalso, id: 3, rol: "VENDEDOR" as const };
-    vi.mocked(usuarioRepository.findById).mockResolvedValue(vendedor);
-    vi.mocked(refreshTokenRepository.revocarTodosDeUsuario).mockResolvedValue({} as any);
-    vi.mocked(usuarioRepository.delete).mockResolvedValue(vendedor);
+  it("borra físicamente si no tiene ventas ni movimientos", async () => {
+    vi.mocked(usuarioRepository.findByIdParaEliminar).mockResolvedValue(
+      sinHistorial() as any
+    );
+    vi.mocked(usuarioRepository.delete).mockResolvedValue(sinHistorial() as any);
 
-    await usuarioService.delete(3, 1);
+    const resultado = await usuarioService.delete(3, 1, 2);
 
-    expect(refreshTokenRepository.revocarTodosDeUsuario).toHaveBeenCalledWith(3);
+    expect(resultado).toEqual({ modo: "ELIMINADO" });
+    expect(usuarioRepository.delete).toHaveBeenCalledWith(3, 1, tx);
+    expect(usuarioRepository.darDeBaja).not.toHaveBeenCalled();
+    expect(refreshTokenRepository.revocarTodosDeUsuario).not.toHaveBeenCalled();
+  });
+
+  it("da de baja si tiene ventas como vendedor", async () => {
+    vi.mocked(usuarioRepository.findByIdParaEliminar).mockResolvedValue(
+      sinHistorial({
+        _count: { ventasRealizadas: 1, ventasAnuladas: 0, movimientosGenerados: 0 },
+      }) as any
+    );
+
+    const resultado = await usuarioService.delete(3, 1, 2);
+
+    expect(resultado).toEqual({ modo: "BAJA" });
+    expect(usuarioRepository.delete).not.toHaveBeenCalled();
+    expect(refreshTokenRepository.revocarTodosDeUsuario).toHaveBeenCalledWith(3, tx);
+    expect(usuarioRepository.darDeBaja).toHaveBeenCalledWith(3, 1, tx);
+  });
+
+  it("da de baja si tiene movimientos como responsable", async () => {
+    vi.mocked(usuarioRepository.findByIdParaEliminar).mockResolvedValue(
+      sinHistorial({
+        _count: { ventasRealizadas: 0, ventasAnuladas: 0, movimientosGenerados: 1 },
+      }) as any
+    );
+
+    const resultado = await usuarioService.delete(3, 1, 2);
+
+    expect(resultado).toEqual({ modo: "BAJA" });
+    expect(usuarioRepository.darDeBaja).toHaveBeenCalledWith(3, 1, tx);
+  });
+
+  it("cae a baja si el borrado físico falla por P2003", async () => {
+    vi.mocked(usuarioRepository.findByIdParaEliminar).mockResolvedValue(
+      sinHistorial() as any
+    );
+    vi.mocked(usuarioRepository.delete).mockRejectedValueOnce(errorP2003());
+
+    const resultado = await usuarioService.delete(3, 1, 2);
+
+    expect(resultado).toEqual({ modo: "BAJA" });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(refreshTokenRepository.revocarTodosDeUsuario).toHaveBeenCalledWith(3, tx);
+    expect(usuarioRepository.darDeBaja).toHaveBeenCalledWith(3, 1, tx);
+  });
+
+  it("permite eliminar un ADMIN si hay más de uno activo", async () => {
+    const admin = sinHistorial({ id: 1, rol: "ADMIN" });
+    vi.mocked(usuarioRepository.findByIdParaEliminar).mockResolvedValue(admin as any);
+    vi.mocked(usuarioRepository.findByRol).mockResolvedValue([
+      admin,
+      sinHistorial({ id: 2, rol: "ADMIN" }),
+    ] as any);
+    vi.mocked(usuarioRepository.delete).mockResolvedValue(admin as any);
+
+    const resultado = await usuarioService.delete(1, 1, 2);
+
+    expect(resultado).toEqual({ modo: "ELIMINADO" });
+    expect(usuarioRepository.delete).toHaveBeenCalledWith(1, 1, tx);
   });
 });
 

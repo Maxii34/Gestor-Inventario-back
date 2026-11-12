@@ -1,12 +1,12 @@
-# 📦 Gestor de Inventario
+# 📦 StockNext: Gestor de inventarios
 
-Sistema backend para gestión de inventario, ventas y stock de un comercio, con autenticación por roles y registro del método de pago.
+Backend para gestión de inventario, ventas, stock, suscripciones y administración multiempresa de comercios. El sistema está orientado a operar como plataforma SaaS donde cada comercio tiene su propio catálogo, usuarios, ventas y datos aislados, además de un panel de administración global para soporte y gestión de la plataforma.
 
-Permite administrar productos, categorías, clientes, movimientos de stock y ventas, con control de acceso diferenciado entre administradores y vendedores, transacciones atómicas para evitar inconsistencias de stock, y registro del método de pago en cada venta. El sistema no procesa pagos.
+El proyecto combina Express + TypeScript + Prisma + PostgreSQL y soporta autenticación por JWT, control de roles, vigencia de planes, reactivación/suspensión de comercios, carga masiva de productos/categorías, auditoría y administración por superadmin.
 
 ---
 
-## 🛠️ Tecnologías
+## 🛠️ Stack tecnológico
 
 ![Node.js](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
@@ -20,52 +20,127 @@ Permite administrar productos, categorías, clientes, movimientos de stock y ven
 
 ---
 
-## ✨ Funcionalidades
+## ✨ Funcionalidades actuales
 
-- **Autenticación y autorización**: login con JWT, refresh token con rotación, roles `ADMIN` y `VENDEDOR` con permisos diferenciados por endpoint.
-- **Gestión de catálogo**: CRUD de categorías y productos, con control de precios y stock mínimo.
-- **Control de stock**: registro de movimientos (`ENTRADA`, `SALIDA`, `AJUSTE`) con cálculo automático de stock, protegido por transacciones para evitar inconsistencias.
-- **Gestión de clientes**: CRUD con soft delete.
-- **Ventas**: registro de ventas con múltiples ítems, cálculo automático de totales, y descuento de stock atómico junto con la generación de movimientos.
-- **Registro del método de pago**: cada venta guarda si el cobro fue en efectivo, transferencia o tarjeta. El sistema no procesa pagos ni se integra con pasarelas de pago.
-- **Paginación**: en los listados de clientes, productos, movimientos y ventas.
-- **Manejo de errores centralizado**: clases de error tipadas (`NotFoundError`, `ConflictError`, `BadRequestError`, `UnauthorizedError`, `ForbiddenError`) con status HTTP correctos y un único middleware de manejo de errores.
-- **Tests automatizados**: cobertura de los flujos de mayor riesgo del negocio (stock, ventas y autenticación) con Vitest.
+### 1) SaaS multiempresa
+
+- Registro público de comercios con creación automática del primer administrador.
+- Aislamiento por `comercioId` en todas las entidades relevantes.
+- Soporte de planes: `PRUEBA`, `MENSUAL`, `TRIMESTRAL`.
+- Control de vigencia y acceso por comercio.
+- Suspensión/reactivación de comercios por parte del superadmin.
+- Extensión de acceso y registro de pagos asociados.
+- Matrices de auditoría con acciones de plataforma.
+
+### 2) Autenticación y roles
+
+- Login con JWT y refresh token.
+- Usuarios con roles `ADMIN` y `VENDEDOR`.
+- Validación por comercio: cada request se valida contra el `comercioId` del token.
+- Usuarios deshabilitados quedan bloqueados.
+- Middleware de vigencia para evitar acceso cuando la suscripción venció o está suspendida.
+- Login y refresh con rate limiting para protección de fuerza bruta.
+
+### 3) Gestión de catálogo y proveedores
+
+- CRUD de categorías, productos y proveedores.
+- Productos con precio de compra, precio de venta, stock mínimo, código de barras y activos/inactivos.
+- Soporte de productos por paquete (`precioCompraPaquete`, `unidadesPorPaquete`).
+- Validación de integridad de datos por comercio.
+- Carga masiva de categorías y productos por parte del superadmin.
+
+### 4) Stock y movimientos
+
+- Registro de movimientos de stock (`ENTRADA`, `SALIDA`, `AJUSTE`).
+- Actualización automática de stock con validaciones de integridad.
+- Transacciones atómicas para evitar inconsistencias.
+- Trazabilidad con `responsableId` y `stockAnterior` / `stockNuevo`.
+- Control de stock insuficiente en ventas y movimientos.
+
+### 5) Ventas y clientes
+
+- CRUD de clientes con datos por comercio.
+- Registro de ventas con múltiples detalles.
+- Cálculo automático de total y subtotales.
+- Método de pago registrado por venta (`EFECTIVO`, `TRANSFERENCIA`, `TARJETA`).
+- Estado de venta: `PENDIENTE`, `COMPLETADA`, `ANULADA`, `RECHAZADA`.
+- Trazabilidad de vendedor y de quién anuló la venta.
+- Soporte a anulación y reintegro de stock con movimiento compensatorio.
+
+### 6) Plataforma administrativa (superadmin)
+
+- Login exclusivo del superadmin.
+- Listado paginado de comercios, métricas y auditoría.
+- Crear comercios desde la plataforma.
+- Gestionar usuarios de cada comercio.
+- Resetear contraseña de usuarios del comercio.
+- Suspender/reactivar comercios con motivo.
+- Extender vigencia del acceso.
+- Cambiar plan del comercio.
+- Registrar pagos y consultar historial.
+- Cargas masivas de datos para cada comercio.
+
+### 7) Seguridad y robustez
+
+- `helmet` para cabeceras seguras.
+- `cors` configurable por ambiente.
+- `express-rate-limit` para protección general y endpoints sensibles.
+- `morgan` para logs en desarrollo.
+- Validación centralizada con Zod.
+- Manejo centralizado de errores con clases tipadas.
+- Estructura diseñada para aislamiento de tenant por `comercioId`.
 
 ---
 
 ## 📁 Estructura del proyecto
 
 ```text
-src/
-
-├── config/          # Configuración de Prisma
-├── controllers/     # Controladores de cada entidad
-├── generated/       # Cliente de Prisma generado
-├── middlewares/     # Autenticación, validación y manejo de errores
-├── repositores/     # Acceso a datos (Prisma)
-├── routes/          # Definición de rutas por entidad
-├── service/         # Lógica de negocio
-├── utils/            # Clases de error y utilidades
-├── validators/       # Schemas de validación con Zod
-├── app.ts            # Configuración de Express
-└── index.ts          # Punto de entrada del servidor
-
-prisma/
-
-├── schema.prisma    # Modelo de datos
-└── migrations/      # Historial de migraciones
+.
+├── Dockerfile
+├── docker-compose.yml
+├── docker-compose.test.yml
+├── package.json
+├── prisma/
+│   ├── schema.prisma
+│   └── migrations/
+├── docs/
+│   ├── IMPLEMENTATION_PLAN.md
+│   └── TECHNICAL_DESIGN.md
+├── public/
+├── scripts/
+│   └── crear-superadmin.ts
+├── src/
+│   ├── app.ts
+│   ├── index.ts
+│   ├── config/
+│   ├── controllers/
+│   ├── errors/
+│   ├── generated/
+│   ├── middlewares/
+│   ├── repositorios/
+│   ├── routes/
+│   ├── service/
+│   ├── types/
+│   ├── utils/
+│   ├── validators/
+│   ├── aislamiento.integration.test.ts
+│   ├── plataforma-usuarios-carga.integration.test.ts
+│   ├── plataforma.integration.test.ts
+│   └── vigencia.integration.test.ts
+├── README.md
+├── SAAS_RULES.md
+└── tsconfig.json
 ```
 
 ---
 
-## ⚙️ Instalación
+## ⚙️ Instalación y configuración
 
 1. Cloná el repositorio:
 
 ```bash
 git clone <url-del-repositorio>
-cd gestor-inventario
+cd stocknext
 ```
 
 2. Instalá las dependencias:
@@ -74,45 +149,59 @@ cd gestor-inventario
 npm install
 ```
 
-3. Creá un archivo `.env` en la raíz con las siguientes variables (ver sección de abajo).
+3. Creá un archivo `.env` en la raíz con las variables necesarias:
 
-4. Corré las migraciones de Prisma:
+```env
+# Servidor
+PORT=3001
+NODE_ENV=development
+CORS_ORIGINS=http://localhost:3000
+
+# Base de datos
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/gestor_inventario
+
+# Auth
+JWT_SECRET=tu_jwt_secret_muy_seguro
+JWT_EXPIRES_IN=1h
+
+# Config adicional
+REGISTRO_PUBLICO=true
+VIGENCIA_CACHE_SEGUNDOS=15
+```
+
+> El archivo `.env` no debe subirse al repositorio. Asegurate de que esté incluido en `.gitignore`.
+
+4. Ejecutá las migraciones de Prisma:
 
 ```bash
 npx prisma migrate dev
 ```
 
-5. Generá el cliente de Prisma (si no se generó automáticamente):
+5. Generá el cliente Prisma:
 
 ```bash
 npx prisma generate
 ```
 
-6. Iniciá el servidor en modo desarrollo:
+6. Iniciá la API:
 
 ```bash
 npm run dev
 ```
 
----
+### Docker
 
-## 🔑 Variables de entorno
+También podés levantar la app con Docker Compose:
 
-Creá un archivo `.env` con las siguientes claves (sin exponer los valores reales en ningún commit):
-
-```env
-# Servidor
-PORT=3001
-
-# Base de datos
-DATABASE_URL=
-
-# Autenticación
-JWT_SECRET=
-JWT_EXPIRES_IN=
+```bash
+docker compose up --build
 ```
 
-> ⚠️ El archivo `.env` no debe subirse al repositorio. Verificá que esté incluido en `.gitignore`.
+Para la base de pruebas:
+
+```bash
+docker compose -f docker-compose.test.yml up -d
+```
 
 ---
 
@@ -121,49 +210,125 @@ JWT_EXPIRES_IN=
 | Comando | Descripción |
 |---|---|
 | `npm run dev` | Inicia el servidor en modo desarrollo con recarga automática |
-| `npm run build` | Compila el proyecto TypeScript a JavaScript |
-| `npm start` | Inicia el servidor compilado (producción) |
-| `npm test` | Corre la suite de tests una vez |
-| `npm run test:watch` | Corre los tests en modo observador (re-ejecuta al guardar cambios) |
+| `npm run build` | Compila TypeScript a JavaScript |
+| `npm start` | Ejecuta la build de producción |
+| `npm test` | Corre la suite de tests |
+| `npm run test:watch` | Ejecuta los tests en modo observador |
+| `npm run test:integration` | Levanta DB de test y ejecuta tests de integración |
+| `npm run db:test:up` | Levanta la base de pruebas con Docker |
+| `npm run db:test:down` | Cierra la base de pruebas |
+| `npm run superadmin:crear` | Crea un superadmin inicial |
 
 ---
 
 ## 📡 Endpoints principales
 
-| Método | Ruta | Descripción | Acceso |
-|---|---|---|---|
-| POST | `/usuarios/login` | Inicio de sesión | Público |
-| POST | `/usuarios/refresh` | Renovación de access token | Público |
-| POST | `/usuarios/logout` | Cierre de sesión | Público |
-| GET/POST/PUT/DELETE | `/categorias` | Gestión de categorías | ADMIN |
-| GET/POST/PUT/DELETE | `/productos` | Gestión de productos | ADMIN (escritura) / Autenticado (lectura) |
-| GET/POST/PUT/DELETE | `/clientes` | Gestión de clientes | Autenticado |
-| GET/POST/PUT/DELETE | `/movimientos` | Movimientos de stock | Autenticado |
-| GET/POST/PUT/DELETE | `/ventas` | Gestión de ventas | Autenticado |
+### Rutas públicas
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| POST | `/comercios/registrar` | Registro público de un nuevo comercio y su primer admin |
+| POST | `/plataforma/login` | Login del superadmin de la plataforma |
+| POST | `/usuarios/login` | Login de un usuario del comercio |
+| POST | `/usuarios/refresh` | Renovación del token |
+| POST | `/usuarios/logout` | Cierre de sesión |
+
+### Rutas autenticadas por comercio
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET/POST/PUT/DELETE | `/categorias` | Gestión del catálogo de categorías |
+| GET/POST/PUT/DELETE | `/productos` | Gestión de productos |
+| GET/POST/PUT/DELETE | `/proveedores` | Gestión de proveedores |
+| GET/POST/PUT/DELETE | `/clientes` | Gestión de clientes |
+| GET/POST/PUT/DELETE | `/movimientos` | Registro y consulta de movimientos de stock |
+| GET/POST/PUT/DELETE | `/ventas` | Gestión de ventas |
+| GET/POST/PUT/DELETE | `/usuarios` | Administración de usuarios del comercio |
+| GET | `/estadisticas` | Consulta de métricas del negocio |
+| GET | `/suscripcion` | Estado actual de la suscripción y vigencia |
+
+### Rutas de administración de plataforma
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| GET | `/plataforma/comercios` | Listado de comercios |
+| POST | `/plataforma/comercios` | Crear comercio desde plataforma |
+| GET | `/plataforma/comercios/:id` | Detalle de comercio |
+| GET | `/plataforma/comercios/:id/usuarios` | Usuarios del comercio |
+| PUT | `/plataforma/comercios/:id/usuarios/:usuarioId` | Editar usuario |
+| POST | `/plataforma/comercios/:id/usuarios/:usuarioId/resetear-password` | Resetear contraseña |
+| POST | `/plataforma/comercios/:id/categorias/masivo` | Carga masiva de categorías |
+| POST | `/plataforma/comercios/:id/productos/masivo` | Carga masiva de productos |
+| POST | `/plataforma/comercios/:id/suspender` | Suspender comercio |
+| POST | `/plataforma/comercios/:id/reactivar` | Reactivar comercio |
+| POST | `/plataforma/comercios/:id/extender` | Extender acceso |
+| POST | `/plataforma/comercios/:id/cambiar-plan` | Cambiar plan |
+| POST | `/plataforma/comercios/:id/pagos` | Registrar pago |
+| GET | `/plataforma/comercios/:id/pagos` | Historial de pagos |
+| GET | `/plataforma/auditoria` | Auditoría de la plataforma |
+| GET | `/plataforma/metricas` | Métricas globales |
+
+---
+
+## 🧩 Modelo de datos principal
+
+El proyecto usa PostgreSQL con Prisma ORM y principales entidades como:
+
+- `Comercio`
+- `Categoria`
+- `Producto`
+- `Proveedor`
+- `MovimientoStock`
+- `Cliente`
+- `Venta`
+- `DetalleVenta`
+- `Usuario`
+- `RefreshToken`
+- `Superadmin`
+- `Pago`
+- `AuditoriaPlataforma`
+
+Incluye enums como:
+
+- `Plan`: `PRUEBA`, `MENSUAL`, `TRIMESTRAL`
+- `RolUsuario`: `ADMIN`, `VENDEDOR`
+- `MetodoPago`: `EFECTIVO`, `TRANSFERENCIA`, `TARJETA`
+- `EstadoVenta`: `PENDIENTE`, `COMPLETADA`, `ANULADA`, `RECHAZADA`
+- `TipoMovimiento`: `ENTRADA`, `SALIDA`, `AJUSTE`
 
 ---
 
 ## 🧪 Testing
 
-El proyecto incluye tests unitarios con **Vitest**, enfocados en los flujos de negocio con mayor riesgo real (no se busca cobertura total, sino cubrir la lógica que puede fallar silenciosamente):
+El proyecto cuenta con una suite de tests con Vitest para validar los flujos críticos del dominio:
 
-- **`movimientoService`**: cálculo de stock en `ENTRADA`, `SALIDA` y `AJUSTE`, bloqueo por stock insuficiente, e integridad de la transacción atómica que descuenta stock y registra el movimiento.
-- **`ventaService`**: venta directa, anulación con reposición de stock y máquina de estados.
-- **`usuarioService`**: hash y verificación de contraseñas, rotación de refresh tokens, y las reglas de negocio sobre el administrador único del sistema.
+- stock y movimientos
+- ventas y anulaciones
+- usuarios y auth
+- aislamiento por comercio
+- vigencia de acceso
+- carga masiva y administración de plataforma
 
-Todos los tests usan mocks sobre los repositories y servicios externos (Prisma, bcrypt, JWT), por lo que no requieren conexión a una base de datos real para ejecutarse.
-
-Para correrlos:
+Para ejecutar todos los tests:
 
 ```bash
 npm test
 ```
 
+Para integración con base de pruebas:
+
+```bash
+npm run test:integration
+```
+
 ---
 
-## 🧩 Modelo de datos
+## 📝 Observaciones importantes
 
-El proyecto utiliza PostgreSQL con Prisma ORM. Las entidades principales son: `Categoria`, `Producto`, `MovimientoStock`, `Cliente`, `Venta`, `DetalleVenta`, `Usuario` y `RefreshToken`.
+- El sistema no procesa pagos reales; solo registra el método de cobro y la información del pago administrativo.
+- Cada comercio está aislado de los demás por `comercioId` en relaciones, filtros y validaciones.
+- La vigencia del acceso se usa para controlar si un comercio sigue activo o quedó en modo solo lectura.
+- La plataforma de superadmin implementa la parte operativa del SaaS, sin incluir facturación fiscal ni subscripciones complejas fuera del alcance del backend.
 
 ---
 

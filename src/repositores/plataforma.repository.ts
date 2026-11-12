@@ -44,6 +44,27 @@ export const plataformaRepository = {
   findComercioById: (id: number, tx?: PrismaTx) =>
     (tx ?? prisma).comercio.findUnique({ where: { id } }),
 
+  findComercioParaEliminar: (id: number, tx?: PrismaTx) =>
+    (tx ?? prisma).comercio.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        nombre: true,
+        slug: true,
+        activo: true,
+        plan: true,
+        accesoHasta: true,
+        _count: {
+          select: {
+            usuarios: true,
+            productos: true,
+            ventas: true,
+            pagos: true,
+          },
+        },
+      },
+    }),
+
   updateComercio: (
     id: number,
     data: Prisma.ComercioUncheckedUpdateInput,
@@ -72,11 +93,13 @@ export const plataformaRepository = {
     comercioId: number,
     skip: number,
     take: number,
-    q?: string
+    q?: string,
+    incluirBajas = false
   ) =>
     prisma.usuario.findMany({
       where: {
         comercioId,
+        ...(incluirBajas ? {} : { fechaBaja: null }),
         ...(q
           ? {
               OR: [
@@ -95,15 +118,21 @@ export const plataformaRepository = {
         email: true,
         rol: true,
         activo: true,
+        fechaBaja: true,
         debeCambiarPassword: true,
         fechaCreacion: true,
       },
     }),
 
-  countUsuariosDeComercio: (comercioId: number, q?: string) =>
+  countUsuariosDeComercio: (
+    comercioId: number,
+    q?: string,
+    incluirBajas = false
+  ) =>
     prisma.usuario.count({
       where: {
         comercioId,
+        ...(incluirBajas ? {} : { fechaBaja: null }),
         ...(q
           ? {
               OR: [
@@ -128,6 +157,7 @@ export const plataformaRepository = {
         email: true,
         rol: true,
         activo: true,
+        fechaBaja: true,
         debeCambiarPassword: true,
         fechaCreacion: true,
       },
@@ -168,6 +198,7 @@ export const plataformaRepository = {
         email: true,
         rol: true,
         activo: true,
+        fechaBaja: true,
         debeCambiarPassword: true,
         fechaCreacion: true,
       },
@@ -186,6 +217,33 @@ export const plataformaRepository = {
 
   countPagos: (comercioId: number) =>
     prisma.pago.count({ where: { comercioId } }),
+
+  findPagosGlobal: (
+    where: Prisma.PagoWhereInput,
+    skip: number,
+    take: number
+  ) =>
+    prisma.pago.findMany({
+      where,
+      orderBy: { fecha: "desc" },
+      skip,
+      take,
+      select: {
+        id: true,
+        comercioId: true,
+        comercioNombre: true,
+        monto: true,
+        moneda: true,
+        plan: true,
+        mesesAcreditados: true,
+        metodo: true,
+        referencia: true,
+        fecha: true,
+      },
+    }),
+
+  countPagosGlobal: (where: Prisma.PagoWhereInput) =>
+    prisma.pago.count({ where }),
 
   crearAuditoria: (
     data: Prisma.AuditoriaPlataformaUncheckedCreateInput,

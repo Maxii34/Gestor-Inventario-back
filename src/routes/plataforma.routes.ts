@@ -9,6 +9,7 @@ import {
   cargaMasivaProductosSchema,
   crearComercioPlataformaSchema,
   editarUsuarioPlataformaSchema,
+  eliminarComercioSchema,
   extenderAccesoSchema,
   loginPlataformaSchema,
   registrarPagoSchema,
@@ -76,6 +77,12 @@ router.post(
   plataformaController.reactivarComercio
 );
 router.post(
+  "/comercios/:id/eliminar",
+  verificarSuperadmin,
+  validate(eliminarComercioSchema),
+  plataformaController.eliminarComercio
+);
+router.post(
   "/comercios/:id/extender",
   verificarSuperadmin,
   validate(extenderAccesoSchema),
@@ -97,6 +104,11 @@ router.get(
   "/comercios/:id/pagos",
   verificarSuperadmin,
   plataformaController.getPagos
+);
+router.get(
+  "/pagos",
+  verificarSuperadmin,
+  plataformaController.getPagosGlobal
 );
 
 router.get("/auditoria", verificarSuperadmin, plataformaController.getAuditoria);

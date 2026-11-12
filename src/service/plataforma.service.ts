@@ -34,6 +34,11 @@ import {
 } from "../utils/errors";
 import { obtenerSecretoPlataforma } from "../utils/plataformaJwt";
 import { resolverPreciosProducto } from "../utils/precioProducto";
+import {
+  esFechaISOValida,
+  finDeDiaArgentina,
+  inicioDeDiaArgentina,
+} from "../utils/fechas";
 import { invalidarVigencia } from "../middlewares/vigencia.middleware";
 
 export interface LoginPlataformaDTO {
@@ -366,6 +371,72 @@ const reactivarComercio = async (
   return resultado;
 };
 
+const eliminarComercio = async (
+  id: number,
+  confirmarSlug: string,
+  superadminId: number,
+  ip: string | null
+) => {
+  const resultado = await prisma.$transaction(
+    async (tx) => {
+      const comercio = await plataformaRepository.findComercioParaEliminar(id, tx);
+      if (!comercio) {
+        throw new NotFoundError("Comercio no encontrado");
+      }
+      if (comercio.activo) {
+        throw new ConflictError("Suspendé el negocio antes de eliminarlo");
+      }
+      if (confirmarSlug !== comercio.slug) {
+        throw new BadRequestError("El slug de confirmación no coincide");
+      }
+
+      const resumen = {
+        comercioId: comercio.id,
+        nombre: comercio.nombre,
+        slug: comercio.slug,
+        plan: comercio.plan,
+        accesoHasta: comercio.accesoHasta
+          ? comercio.accesoHasta.toISOString()
+          : null,
+        conteos: {
+          usuarios: comercio._count.usuarios,
+          productos: comercio._count.productos,
+          ventas: comercio._count.ventas,
+          pagos: comercio._count.pagos,
+        },
+      };
+
+      await tx.detalleVenta.deleteMany({ where: { comercioId: id } });
+      await tx.venta.deleteMany({ where: { comercioId: id } });
+      await tx.movimientoStock.deleteMany({ where: { comercioId: id } });
+      await tx.producto.deleteMany({ where: { comercioId: id } });
+      await tx.categoria.deleteMany({ where: { comercioId: id } });
+      await tx.cliente.deleteMany({ where: { comercioId: id } });
+      await tx.proveedor.deleteMany({ where: { comercioId: id } });
+      await tx.usuario.deleteMany({ where: { comercioId: id } });
+
+      await plataformaRepository.crearAuditoria(
+        {
+          accion: AccionPlataforma.ELIMINAR_COMERCIO,
+          detalle: resumen,
+          ip,
+          superadminId,
+          comercioId: null,
+        },
+        tx
+      );
+
+      await tx.comercio.delete({ where: { id } });
+
+      return resumen;
+    },
+    { timeout: 30_000 }
+  );
+
+  invalidarVigencia(id);
+  return resultado;
+};
+
 const extenderAcceso = async (
   id: number,
   dias: number,
@@ -505,6 +576,7 @@ const registrarPago = async (
         accesoDesde,
         accesoHasta,
         comercioId: id,
+        comercioNombre: comercio.nombre,
         registradoPorId: superadminId,
       },
       tx
@@ -546,6 +618,64 @@ const listarPagos = async (id: number, page: number, limit: number) => {
   const [pagos, total] = await Promise.all([
     plataformaRepository.findPagos(id, skip, limit),
     plataformaRepository.countPagos(id),
+  ]);
+
+  return {
+    data: pagos,
+    meta: { total, page, limit, totalPaginas: Math.ceil(total / limit) },
+  };
+};
+
+interface ListarPagosGlobalDTO {
+  page: number;
+  limit: number;
+  desde?: string;
+  hasta?: string;
+}
+
+const listarPagosGlobal = async ({
+  page,
+  limit,
+  desde,
+  hasta,
+}: ListarPagosGlobalDTO) => {
+  if (desde !== undefined && !esFechaISOValida(desde)) {
+    throw new BadRequestError(
+      "Las fechas 'desde' y 'hasta' deben ser válidas (formato AAAA-MM-DD)"
+    );
+  }
+  if (hasta !== undefined && !esFechaISOValida(hasta)) {
+    throw new BadRequestError(
+      "Las fechas 'desde' y 'hasta' deben ser válidas (formato AAAA-MM-DD)"
+    );
+  }
+
+  const fechaDesde =
+    desde !== undefined ? inicioDeDiaArgentina(desde) : undefined;
+  const fechaHasta =
+    hasta !== undefined ? finDeDiaArgentina(hasta) : undefined;
+
+  if (fechaDesde !== undefined && fechaHasta !== undefined && fechaDesde > fechaHasta) {
+    throw new BadRequestError(
+      "La fecha 'desde' no puede ser posterior a 'hasta'"
+    );
+  }
+
+  const fecha: Prisma.DateTimeFilter<"Pago"> = {};
+  if (fechaDesde !== undefined) {
+    fecha.gte = fechaDesde;
+  }
+  if (fechaHasta !== undefined) {
+    fecha.lte = fechaHasta;
+  }
+
+  const where: Prisma.PagoWhereInput =
+    fechaDesde !== undefined || fechaHasta !== undefined ? { fecha } : {};
+
+  const skip = (page - 1) * limit;
+  const [pagos, total] = await Promise.all([
+    plataformaRepository.findPagosGlobal(where, skip, limit),
+    plataformaRepository.countPagosGlobal(where),
   ]);
 
   return {
@@ -643,7 +773,8 @@ const listarUsuariosComercio = async (
   comercioId: number,
   page: number,
   limit: number,
-  q?: string
+  q?: string,
+  incluirBajas = false
 ) => {
   const comercio = await plataformaRepository.findComercioById(comercioId);
   if (!comercio) {
@@ -655,8 +786,14 @@ const listarUsuariosComercio = async (
   const skip = (page - 1) * limit;
 
   const [usuarios, total] = await Promise.all([
-    plataformaRepository.findUsuariosDeComercio(comercioId, skip, limit, filtro),
-    plataformaRepository.countUsuariosDeComercio(comercioId, filtro),
+    plataformaRepository.findUsuariosDeComercio(
+      comercioId,
+      skip,
+      limit,
+      filtro,
+      incluirBajas
+    ),
+    plataformaRepository.countUsuariosDeComercio(comercioId, filtro, incluirBajas),
   ]);
 
   return {
@@ -687,7 +824,7 @@ const editarUsuarioComercio = async (
         usuarioId,
         tx
       );
-      if (!usuario) {
+      if (!usuario || usuario.fechaBaja) {
         throw new NotFoundError("Usuario no encontrado");
       }
 
@@ -816,7 +953,7 @@ const resetearPasswordUsuario = async (
       usuarioId,
       tx
     );
-    if (!usuario) {
+    if (!usuario || usuario.fechaBaja) {
       throw new NotFoundError("Usuario no encontrado");
     }
 
@@ -1182,10 +1319,12 @@ export const plataformaService = {
   crearComercio,
   suspenderComercio,
   reactivarComercio,
+  eliminarComercio,
   extenderAcceso,
   cambiarPlan,
   registrarPago,
   listarPagos,
+  listarPagosGlobal,
   listarAuditoria,
   listarUsuariosComercio,
   editarUsuarioComercio,
