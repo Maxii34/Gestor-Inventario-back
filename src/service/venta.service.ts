@@ -142,6 +142,7 @@ export const ventaService = {
             motivo: "Venta",
             producto: { connect: { id: item.productoId } },
             comercio: { connect: { id: comercioId } },
+            responsable: { connect: { id: vendedorId } },
           },
           tx
         );
@@ -297,6 +298,7 @@ export const ventaService = {
             motivo: `Anulación venta #${id}: ${motivoLimpio}`,
             producto: { connect: { id: repo.productoId } },
             comercio: { connect: { id: comercioId } },
+            responsable: { connect: { id: anuladoPorId } },
           },
           tx
         );
